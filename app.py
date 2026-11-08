@@ -1,6 +1,7 @@
 import re
 import csv
 import io
+import math
 from collections import Counter
 
 import torch
@@ -17,6 +18,7 @@ from transformers import (
 
 MODEL_ID = "AbdelrahmanAkl/arabic-sentiment-compass-arabert"
 MAX_LENGTH = 128
+GITHUB_URL = "https://github.com/AbdelrhmanAkl/Arabic-Sentiment-Compass"
 
 ID2LABEL = {
     0: "Negative",
@@ -31,16 +33,25 @@ ARABIC_LABELS = {
 }
 
 LABELS_ORDER = [
-    "Negative",
-    "Neutral",
     "Positive",
+    "Neutral",
+    "Negative",
 ]
 
-SENTIMENT_ICONS = {
-    "Negative": "−",
-    "Neutral": "•",
-    "Positive": "+",
+# Each sentiment keeps the same colour everywhere in the app.
+SENTIMENT_COLORS = {
+    "Negative": "#C8445C",
+    "Neutral": "#B9852B",
+    "Positive": "#0F8F7E",
 }
+
+EXAMPLES = {
+    "مثال إيجابي": "الخدمة كانت ممتازة والتجربة أفضل مما توقعت",
+    "مثال سلبي": "تجربة سيئة جدًا، التوصيل اتأخر والدعم ما رد علي",
+    "مثال محايد": "تم افتتاح الفرع الجديد يوم الأحد الساعة التاسعة صباحًا",
+}
+
+LOW_CONFIDENCE = 0.60
 
 
 # =========================================================
@@ -48,7 +59,7 @@ SENTIMENT_ICONS = {
 # =========================================================
 
 st.set_page_config(
-    page_title="Arabic Sentiment Compass",
+    page_title="بوصلة المشاعر العربية | Arabic Sentiment Compass",
     page_icon="🧭",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -174,398 +185,321 @@ def clear_single_input():
     st.session_state["single_result"] = None
 
 
+def set_example(text):
+    st.session_state["single_text"] = text
+    st.session_state["single_result"] = None
+
 
 # =========================================================
-# PREMIUM UI — COMPLETE REDESIGN
+# UI HELPERS
+# =========================================================
+
+def html(markup):
+    """Render HTML without Markdown turning indented lines into code blocks."""
+    st.markdown(re.sub(r"\n\s*", "", markup), unsafe_allow_html=True)
+
+
+def _arc(cx, cy, r, a0, a1):
+    x0 = cx + r * math.cos(math.radians(a0))
+    y0 = cy - r * math.sin(math.radians(a0))
+    x1 = cx + r * math.cos(math.radians(a1))
+    y1 = cy - r * math.sin(math.radians(a1))
+    return f"M {x0:.2f} {y0:.2f} A {r} {r} 0 0 1 {x1:.2f} {y1:.2f}"
+
+
+def gauge_svg(label=None, score=0.0, on_dark=False):
+    """
+    Semicircular compass gauge.
+    Left = negative, centre = neutral, right = positive.
+    score = P(positive) - P(negative), range [-1, 1].
+    """
+    cx, cy, r = 150, 150, 118
+    idle = label is None
+    grey = "#3A4A63" if on_dark else "#E3E7EE"
+    segments = [
+        ("Negative", 178.5, 121.5),
+        ("Neutral", 118.5, 61.5),
+        ("Positive", 58.5, 1.5),
+    ]
+    arcs = ""
+    for name, a0, a1 in segments:
+        if idle:
+            color, opacity = grey, 1
+        else:
+            color = SENTIMENT_COLORS[name]
+            opacity = 1 if name == label else 0.22
+        arcs += (
+            f'<path d="{_arc(cx, cy, r, a0, a1)}" fill="none" stroke="{color}" '
+            f'stroke-width="20" stroke-opacity="{opacity}"/>'
+        )
+
+    needle_color = "#FFFFFF" if on_dark else "#0E1A2B"
+    deg = max(-1.0, min(1.0, score)) * 90
+    needle = (
+        f'<g class="needle" style="--r:{deg:.1f}deg;transform:rotate({deg:.1f}deg);'
+        f'transform-origin:{cx}px {cy}px;">'
+        f'<path d="M {cx-5} {cy} L {cx} {cy-r+26} L {cx+5} {cy} Z" fill="{needle_color}"/>'
+        f"</g>"
+        f'<circle cx="{cx}" cy="{cy}" r="9" fill="{needle_color}"/>'
+        f'<circle cx="{cx}" cy="{cy}" r="3.5" fill="{"#0E1A2B" if on_dark else "#FFFFFF"}"/>'
+    )
+
+    tick_color = "#8D9BB2" if on_dark else "#6B7788"
+    ticks = (
+        f'<text x="{cx-r}" y="{cy+30}" text-anchor="middle" font-size="13" fill="{tick_color}">سلبي</text>'
+        f'<text x="{cx}" y="{cy-r-16}" text-anchor="middle" font-size="13" fill="{tick_color}">محايد</text>'
+        f'<text x="{cx+r}" y="{cy+30}" text-anchor="middle" font-size="13" fill="{tick_color}">إيجابي</text>'
+    )
+
+    return (
+        f'<svg viewBox="0 0 300 190" xmlns="http://www.w3.org/2000/svg" '
+        f'role="img" aria-label="مؤشر اتجاه المشاعر" style="width:100%;height:auto;display:block;">'
+        f"{arcs}{needle}{ticks}</svg>"
+    )
+
+
+# =========================================================
+# STYLES
 # =========================================================
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Readex+Pro:wght@400;500;600;700&display=swap');
 
 :root{
-    --ink:#17203a;
-    --muted:#718096;
-    --line:#e7eaf2;
-    --surface:#ffffff;
-    --bg:#f7f8fc;
-    --purple:#6857f5;
-    --blue:#3c82f6;
-    --cyan:#19b7d8;
-    --green:#23b58a;
-    --coral:#ef6b78;
+    --ink:#0E1A2B;
+    --ink-2:#26344B;
+    --muted:#5B6676;
+    --line:#DCE1E8;
+    --bg:#F3F5F8;
+    --surface:#FFFFFF;
+    --brand:#1F3FBF;
+    --brand-dark:#182F92;
+    --neg:#C8445C;
+    --neu:#B9852B;
+    --pos:#0F8F7E;
 }
 
-html, body, [class*="css"]{
-    font-family:"IBM Plex Sans Arabic","Cairo",sans-serif;
+html, body, [class*="css"], .stApp, button, input, textarea{
+    font-family:"IBM Plex Sans Arabic","Readex Pro",sans-serif;
 }
 
-.stApp{
-    background:
-      radial-gradient(circle at 4% 3%, rgba(104,87,245,.10), transparent 22%),
-      radial-gradient(circle at 96% 8%, rgba(25,183,216,.10), transparent 24%),
-      linear-gradient(180deg,#fbfcff 0%,#f7f8fc 100%);
-    color:var(--ink);
-}
+.stApp{ background:var(--bg); color:var(--ink); direction:rtl; }
+.block-container{ max-width:1180px; padding:1.4rem 2rem 3rem; }
 
-.block-container{
-    max-width:1220px;
-    padding:28px 34px 60px;
-}
+#MainMenu, footer, header{ visibility:hidden; }
+[data-testid="stToolbar"], [data-testid="stDecoration"]{ display:none; }
+[data-testid="stDataFrame"], [data-testid="stCode"], pre, code{ direction:ltr; text-align:left; }
 
-/* hide Streamlit chrome */
-#MainMenu, footer, header {visibility:hidden;}
-[data-testid="stToolbar"]{display:none;}
-[data-testid="stDecoration"]{display:none;}
-
-/* ---------- top navigation ---------- */
-.navbar{
-    height:64px;
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    padding:0 4px 0 10px;
-    margin-bottom:24px;
+/* ---------- top bar ---------- */
+.topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:6px 2px 18px;
 }
-.brand{
-    display:flex;
-    align-items:center;
-    gap:12px;
-}
+.brand{ display:flex; align-items:center; gap:12px; }
 .brand-mark{
-    width:42px;height:42px;border-radius:13px;
-    display:flex;align-items:center;justify-content:center;
-    background:linear-gradient(135deg,var(--purple),var(--blue));
-    color:white;font-size:21px;font-weight:800;
-    box-shadow:0 10px 25px rgba(104,87,245,.22);
+    width:40px; height:40px; border-radius:10px; background:var(--ink);
+    display:flex; align-items:center; justify-content:center; font-size:20px;
 }
-.brand-name{font-size:16px;font-weight:800;letter-spacing:-.2px;}
-.brand-sub{font-size:11px;color:var(--muted);margin-top:1px;}
-.status-pill{
-    display:flex;align-items:center;gap:7px;
-    padding:8px 13px;border:1px solid var(--line);
-    background:rgba(255,255,255,.78);border-radius:999px;
-    color:#566174;font-size:11px;font-weight:600;
-    box-shadow:0 4px 15px rgba(24,32,58,.04);
+.brand-name{ font-family:"Readex Pro",sans-serif; font-weight:600; font-size:16px; color:var(--ink); line-height:1.2; }
+.brand-sub{ font-size:13px; color:var(--muted); }
+.gh-link{
+    font-size:14px; font-weight:600; color:var(--ink) !important; text-decoration:none !important;
+    border:1px solid var(--line); background:var(--surface);
+    padding:9px 16px; border-radius:10px;
 }
-.status-dot{width:7px;height:7px;border-radius:50%;background:var(--green);}
+.gh-link:hover{ border-color:var(--ink); }
 
 /* ---------- hero ---------- */
 .hero{
-    position:relative;overflow:hidden;
-    border:1px solid #e6e8f2;
-    border-radius:30px;
-    padding:52px 56px 44px;
-    background:
-      radial-gradient(circle at 8% 10%,rgba(104,87,245,.12),transparent 30%),
-      radial-gradient(circle at 96% 92%,rgba(25,183,216,.13),transparent 28%),
-      rgba(255,255,255,.86);
-    box-shadow:0 18px 55px rgba(36,42,72,.07);
-    margin-bottom:28px;
-}
-.hero:after{
-    content:"";
-    position:absolute;right:-90px;top:-100px;
-    width:250px;height:250px;border-radius:50%;
-    border:1px solid rgba(104,87,245,.10);
-    box-shadow:0 0 0 35px rgba(104,87,245,.035),0 0 0 70px rgba(104,87,245,.025);
-}
-.hero-kicker{
-    display:inline-flex;align-items:center;gap:8px;
-    color:#6253dc;font-size:10px;font-weight:800;
-    letter-spacing:1.6px;text-transform:uppercase;
-    margin-bottom:14px;
-}
-.hero-kicker span{
-    width:6px;height:6px;border-radius:50%;
-    background:var(--cyan);
+    background:var(--ink); color:#fff; border-radius:20px;
+    padding:44px 48px;
+    display:grid; grid-template-columns:1.25fr .75fr; gap:40px; align-items:center;
+    margin-bottom:26px;
 }
 .hero h1{
-    font-family:"Cairo",sans-serif;
-    font-size:clamp(34px,5vw,58px);
-    line-height:1.18;
-    margin:0;
-    color:#151d38;
-    letter-spacing:-1.8px;
-    font-weight:800;
+    font-family:"Readex Pro",sans-serif; font-weight:600;
+    font-size:clamp(30px,4.2vw,46px); line-height:1.3; margin:0 0 14px; color:#fff;
 }
-.hero p{
-    max-width:730px;
-    margin:17px 0 24px;
-    color:#6d7890;
-    font-size:14px;
-    line-height:2;
-}
-.hero-meta{display:flex;flex-wrap:wrap;gap:9px;}
-.meta{
-    border:1px solid #e5e8f1;background:#fff;
-    padding:8px 12px;border-radius:11px;
-    font-size:10px;color:#657087;
-    box-shadow:0 4px 12px rgba(30,40,70,.035);
-}
-.meta b{color:#27314a;margin-left:4px;}
+.hero p{ font-size:17px; line-height:1.95; color:#B9C4D6; margin:0 0 28px; max-width:520px; }
+.facts{ display:flex; gap:0; margin:0; padding:0; }
+.fact{ padding:0 22px; border-inline-start:1px solid #34445E; }
+.fact:first-child{ padding-inline-start:0; border-inline-start:0; }
+.fact b{ display:block; font-family:"Readex Pro",sans-serif; font-weight:600; font-size:18px; color:#fff; }
+.fact span{ font-size:13px; color:#8D9BB2; }
+.hero-gauge{ direction:ltr; max-width:340px; margin-inline:auto; width:100%; }
 
 /* ---------- tabs ---------- */
-.stTabs{
-    margin-top:6px;
-}
-.stTabs [data-baseweb="tab-list"]{
-    gap:8px;
-    border-bottom:1px solid #e3e6ef;
-    background:transparent;
-}
+.stTabs [data-baseweb="tab-list"]{ gap:6px; border-bottom:1px solid var(--line); }
 .stTabs [data-baseweb="tab"]{
-    height:48px;
-    border-radius:12px 12px 0 0;
-    color:#7b8497;
-    font-weight:700;
-    font-size:12px;
-    padding:0 18px;
+    height:50px; padding:0 20px; font-size:15px; font-weight:600; color:var(--muted);
 }
-.stTabs [aria-selected="true"]{
-    color:#4f43d6 !important;
-    background:#fff;
-    box-shadow:inset 0 -2px 0 var(--purple);
-}
+.stTabs [aria-selected="true"]{ color:var(--ink) !important; }
+.stTabs [data-baseweb="tab-highlight"]{ background:var(--ink) !important; height:3px; }
 
-/* ---------- section headers ---------- */
-.section-head{
-    display:flex;align-items:flex-end;justify-content:space-between;
-    gap:20px;margin:30px 0 17px;
-}
-.eyebrow{
-    font-size:9px;font-weight:800;letter-spacing:1.8px;
-    color:#7769e8;text-transform:uppercase;margin-bottom:5px;
-}
-.section-title{
-    font-family:"Cairo",sans-serif;
-    font-size:23px;font-weight:800;color:#18213c;
-}
-.section-note{font-size:11px;color:#8992a4;}
+/* ---------- headings ---------- */
+.h2{ font-family:"Readex Pro",sans-serif; font-weight:600; font-size:24px; color:var(--ink); margin:26px 0 6px; }
+.lead{ font-size:15px; color:var(--muted); line-height:1.9; margin:0 0 18px; }
+.field-label{ font-size:15px; font-weight:600; color:var(--ink); margin:4px 0 8px; }
+.hint{ font-size:13px; color:var(--muted); }
 
-/* ---------- cards ---------- */
-.card{
-    background:rgba(255,255,255,.94);
-    border:1px solid #e5e8f0;
-    border-radius:22px;
-    box-shadow:0 12px 34px rgba(35,43,73,.055);
-    padding:22px;
-}
-.card-label{
-    font-size:9px;letter-spacing:1.2px;font-weight:800;
-    color:#8992a5;text-transform:uppercase;margin-bottom:8px;
-}
-.card-title{font-size:16px;font-weight:800;color:#202a44;}
-.card-sub{font-size:11px;color:#8790a3;margin-top:4px;}
-
-/* ---------- input ---------- */
-.input-shell{
-    border:1px solid #e1e5ef;border-radius:20px;
-    background:#fff;padding:6px;
-    box-shadow:0 12px 32px rgba(40,48,80,.055);
-}
-textarea{
-    font-family:"IBM Plex Sans Arabic","Cairo",sans-serif !important;
-    font-size:16px !important;
-    color:#1d2741 !important;
-}
+/* ---------- text input ---------- */
 [data-testid="stTextArea"] textarea{
-    border:0 !important;
-    box-shadow:none !important;
-    background:#fff !important;
-    border-radius:15px !important;
-    min-height:190px !important;
-    padding:17px !important;
+    direction:rtl; text-align:right;
+    font-size:17px !important; line-height:1.9 !important; color:var(--ink) !important;
+    background:var(--surface) !important;
+    border:1px solid var(--line) !important; border-radius:14px !important;
+    min-height:200px !important; padding:16px 18px !important;
 }
 [data-testid="stTextArea"] textarea:focus{
-    border:0 !important;
-    box-shadow:0 0 0 2px rgba(104,87,245,.10) !important;
+    border-color:var(--brand) !important; box-shadow:0 0 0 3px rgba(31,63,191,.14) !important;
 }
 
 /* ---------- buttons ---------- */
 .stButton > button{
-    border-radius:13px !important;
-    min-height:46px !important;
-    font-family:"IBM Plex Sans Arabic","Cairo",sans-serif !important;
-    font-weight:700 !important;
-    font-size:12px !important;
-    border:1px solid #e1e5ee !important;
-    background:#fff !important;
-    color:#364058 !important;
-    box-shadow:0 5px 15px rgba(30,40,70,.04) !important;
-    transition:.2s ease !important;
+    min-height:46px; border-radius:12px; font-weight:600; font-size:15px;
+    background:var(--surface); color:var(--ink); border:1px solid var(--line);
+    box-shadow:none; transition:border-color .15s ease, background .15s ease;
 }
-.stButton > button:hover{
-    border-color:#bfc5ff !important;
-    transform:translateY(-1px);
+.stButton > button:hover{ border-color:var(--ink); color:var(--ink); background:var(--surface); }
+.stButton > button[kind="primary"],
+.stButton > button[data-testid="stBaseButton-primary"]{
+    background:var(--brand); color:#fff; border:1px solid var(--brand);
 }
-.primary-btn .stButton > button{
-    background:linear-gradient(135deg,#6958f5,#497ff3) !important;
-    color:#fff !important;
-    border:0 !important;
-    box-shadow:0 10px 24px rgba(94,83,235,.23) !important;
+.stButton > button[kind="primary"]:hover,
+.stButton > button[data-testid="stBaseButton-primary"]:hover{
+    background:var(--brand-dark); border-color:var(--brand-dark); color:#fff;
 }
+.stButton > button:focus-visible{ outline:3px solid rgba(31,63,191,.35); outline-offset:2px; }
+[data-testid="stDownloadButton"] > button{
+    min-height:46px; border-radius:12px; font-weight:600; font-size:15px;
+    background:var(--ink); color:#fff; border:1px solid var(--ink);
+}
+[data-testid="stDownloadButton"] > button:hover{ background:var(--ink-2); color:#fff; }
 
-/* ---------- result card ---------- */
-.result-card{
-    position:relative;overflow:hidden;
-    min-height:386px;
-    display:flex;flex-direction:column;
-    align-items:center;justify-content:center;
-    text-align:center;
-    border-radius:26px;
-    border:1px solid #e3e7f0;
-    background:
-      radial-gradient(circle at 50% 20%,rgba(104,87,245,.08),transparent 34%),
-      #fff;
-    box-shadow:0 16px 45px rgba(35,43,73,.065);
+/* ---------- result panel ---------- */
+.panel{
+    background:var(--surface); border:1px solid var(--line); border-radius:18px; padding:26px 28px;
 }
-.result-card:before{
-    content:"";
-    position:absolute;left:0;right:0;top:0;height:4px;
-    background:linear-gradient(90deg,var(--purple),var(--blue),var(--cyan));
+.panel-idle{ min-height:420px; display:flex; flex-direction:column; justify-content:center; }
+.result-top{ display:flex; align-items:center; justify-content:space-between; gap:14px; }
+.result-kicker{ font-size:14px; color:var(--muted); font-weight:500; }
+.badge{
+    font-size:13px; font-weight:600; padding:5px 12px; border-radius:999px;
+    border:1px solid var(--line); color:var(--ink-2); background:var(--bg);
 }
-.result-caption{font-size:9px;letter-spacing:1.4px;color:#8b94a7;font-weight:800;}
 .result-label{
-    font-family:"Cairo",sans-serif;font-size:30px;
-    font-weight:800;color:#18213c;margin-top:6px;
+    font-family:"Readex Pro",sans-serif; font-weight:600; font-size:42px; line-height:1.2; margin:6px 0 0;
 }
-.result-en{font-size:11px;color:#8a93a6;}
-.confidence{
-    margin-top:15px;padding:8px 15px;border-radius:999px;
-    background:#f2efff;color:#5d50d8;border:1px solid #e3ddff;
-    font-size:11px;font-weight:800;
-}
+.result-sub{ font-size:14px; color:var(--muted); margin-top:2px; }
+.gauge-box{ direction:ltr; max-width:360px; margin:14px auto 6px; }
+.needle{ animation:sweep .9s cubic-bezier(.2,.8,.2,1); }
+@keyframes sweep{ from{ transform:rotate(0deg); } }
+@media (prefers-reduced-motion:reduce){ .needle{ animation:none; } }
 
-/* ---------- result visual ---------- */
-.result-icon{
-    width:82px;height:82px;border-radius:24px;
-    display:flex;align-items:center;justify-content:center;
-    margin:10px 0 18px;
-    background:linear-gradient(135deg,#f0eeff,#eaf9fc);
-    border:1px solid #e0e3f4;
-    box-shadow:0 10px 25px rgba(48,58,96,.08);
-    font-size:30px;font-weight:800;color:#6456e8;
-}
-/* ---------- probability ---------- */
-.prob-card{
-    background:#fff;border:1px solid #e5e8f0;border-radius:18px;
-    padding:17px 18px;box-shadow:0 8px 24px rgba(35,43,73,.045);
-    height:100%;
-}
-.prob-top{display:flex;justify-content:space-between;align-items:center;}
-.prob-name{font-size:12px;font-weight:800;color:#27314a;}
-.prob-en{font-size:9px;color:#8d95a7;}
-.prob-value{font-size:19px;font-weight:800;color:#17203a;}
-.bar{height:7px;border-radius:99px;background:#edf0f5;margin-top:13px;overflow:hidden;}
-.bar-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,#6b5bf4,#25b9d2);}
+.probs{ margin-top:12px; border-top:1px solid var(--line); padding-top:16px; }
+.prob{ display:grid; grid-template-columns:70px 1fr 64px; gap:12px; align-items:center; margin-bottom:12px; }
+.prob-name{ font-size:15px; font-weight:600; color:var(--ink); }
+.prob-val{ font-size:15px; font-weight:600; color:var(--ink); text-align:left; direction:ltr; font-variant-numeric:tabular-nums; }
+.track{ height:10px; border-radius:99px; background:#EBEEF3; overflow:hidden; direction:rtl; }
+.fill{ height:100%; border-radius:99px; }
 
-/* ---------- pipeline ---------- */
-.pipeline{
-    display:flex;align-items:stretch;gap:8px;
-    overflow-x:auto;padding:5px 1px 10px;
+.notice{
+    margin-top:6px; padding:12px 16px; border-radius:12px; font-size:14px; line-height:1.8;
+    background:#FBF4E4; border:1px solid #EBD9A8; color:#6B4E10;
 }
-.step{
-    min-width:150px;flex:1;
-    background:#fff;border:1px solid #e5e8f0;border-radius:17px;
-    padding:16px;text-align:center;
-}
-.step-num{
-    width:30px;height:30px;border-radius:10px;
-    display:flex;align-items:center;justify-content:center;
-    margin:0 auto 9px;
-    background:#f1efff;color:#5f52db;font-size:11px;font-weight:800;
-}
-.step-title{font-size:12px;font-weight:800;color:#27314a;}
-.step-desc{font-size:9px;color:#8a93a5;margin-top:4px;line-height:1.7;}
-.arrow{display:flex;align-items:center;color:#b2b8c8;font-size:17px;}
-
-/* ---------- info/stat ---------- */
-.info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
-.info-box{
-    background:#fff;border:1px solid #e5e8f0;border-radius:17px;padding:17px;
-}
-.info-k{font-size:9px;color:#8992a4;text-transform:uppercase;letter-spacing:1px;}
-.info-v{font-size:15px;font-weight:800;color:#202a44;margin-top:6px;}
-.info-s{font-size:9px;color:#8a93a5;margin-top:3px;}
 .callout{
-    border:1px solid #e4e0ff;background:#f8f7ff;
-    border-radius:17px;padding:16px 18px;color:#59637a;
-    font-size:11px;line-height:1.9;
+    padding:14px 18px; border-radius:12px; font-size:15px; line-height:1.9;
+    background:#EAEFFB; border:1px solid #CBD6F4; color:#1B2E73; margin-bottom:18px;
 }
 
-/* ---------- upload ---------- */
-[data-testid="stFileUploader"]{
-    border:1px dashed #cfd4e2 !important;
-    border-radius:17px !important;
-    background:#fafbfe !important;
-    padding:8px !important;
-}
+/* ---------- stats / batch ---------- */
+.stats{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:14px; }
+.stat{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:16px 18px; }
+.stat-k{ font-size:13px; color:var(--muted); }
+.stat-v{ font-family:"Readex Pro",sans-serif; font-size:28px; font-weight:600; color:var(--ink); line-height:1.3; margin-top:2px; }
+.stat-s{ font-size:13px; color:var(--muted); }
+.stack{ display:flex; height:14px; border-radius:99px; overflow:hidden; direction:rtl; margin:4px 0 16px; background:#EBEEF3; }
+.legend{ display:flex; gap:18px; font-size:13px; color:var(--muted); margin-bottom:18px; }
+.legend i{ display:inline-block; width:10px; height:10px; border-radius:3px; margin-inline-end:6px; }
 
-/* ---------- dataframe ---------- */
-[data-testid="stDataFrame"]{
-    border:1px solid #e4e7ef;
-    border-radius:16px;
-    overflow:hidden;
+[data-testid="stFileUploader"] section{
+    border:1.5px dashed #B9C2D0; border-radius:14px; background:var(--surface);
 }
+[data-testid="stDataFrame"]{ border:1px solid var(--line); border-radius:12px; overflow:hidden; }
 
-/* ---------- footer ---------- */
+/* ---------- about ---------- */
+.kv{ display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:8px 0 8px; }
+.kv > div{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:16px 18px; }
+.kv .k{ font-size:13px; color:var(--muted); }
+.kv .v{ font-family:"Readex Pro",sans-serif; font-weight:600; font-size:17px; color:var(--ink); margin-top:3px; word-break:break-all; direction:ltr; text-align:right; }
+.steps{ display:grid; grid-template-columns:repeat(5,1fr); gap:10px; counter-reset:s; margin:8px 0; }
+.steps > div{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:16px; counter-increment:s; }
+.steps > div:before{
+    content:counter(s); display:flex; align-items:center; justify-content:center;
+    width:28px; height:28px; border-radius:50%; background:var(--ink); color:#fff;
+    font-size:13px; font-weight:600; margin-bottom:10px;
+}
+.steps b{ display:block; font-size:15px; color:var(--ink); }
+.steps span{ font-size:13px; color:var(--muted); line-height:1.7; }
+.limits{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:18px 24px; font-size:15px; line-height:2; color:var(--ink-2); }
+.limits ul{ margin:0; padding-inline-start:20px; }
+
 .footer{
-    margin-top:40px;padding-top:22px;border-top:1px solid #e4e7ef;
-    display:flex;justify-content:space-between;gap:15px;
-    color:#929aaa;font-size:10px;
+    margin-top:42px; padding-top:18px; border-top:1px solid var(--line);
+    display:flex; justify-content:space-between; gap:14px; font-size:13px; color:var(--muted);
 }
-.footer strong{color:#566075;}
+.footer a{ color:var(--ink); font-weight:600; text-decoration:none; }
 
-/* ---------- responsive ---------- */
-@media(max-width:850px){
-    .block-container{padding:18px 15px 40px;}
-    .hero{padding:34px 24px;}
-    .hero h1{font-size:34px;}
-    .info-grid{grid-template-columns:1fr;}
-    .navbar{margin-bottom:14px;}
+@media(max-width:900px){
+    .block-container{ padding:1rem 1rem 2rem; }
+    .hero{ grid-template-columns:1fr; padding:30px 24px; gap:24px; }
+    .stats, .kv{ grid-template-columns:1fr 1fr; }
+    .steps{ grid-template-columns:1fr; }
+    .facts{ flex-wrap:wrap; row-gap:14px; }
+    .footer{ flex-direction:column; }
 }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ---------- top nav ----------
-st.markdown("""
-<div class="navbar">
+# =========================================================
+# TOP BAR + HERO
+# =========================================================
+
+html(f"""
+<div class="topbar">
   <div class="brand">
     <div class="brand-mark">🧭</div>
     <div>
-      <div class="brand-name">Arabic Sentiment Compass</div>
-      <div class="brand-sub">Arabic NLP • AraBERT • Real Inference</div>
+      <div class="brand-name">بوصلة المشاعر العربية</div>
+      <div class="brand-sub">Arabic Sentiment Compass</div>
     </div>
   </div>
-  <div class="status-pill"><span class="status-dot"></span> Real model online</div>
+  <a class="gh-link" href="{GITHUB_URL}" target="_blank" rel="noopener">الكود على GitHub</a>
 </div>
-""", unsafe_allow_html=True)
 
-
-# ---------- hero ----------
-st.markdown("""
-<div class="hero" dir="rtl">
-  <div class="hero-kicker"><span></span> AI SENTIMENT INTELLIGENCE</div>
-  <h1>بوصلة المشاعر العربية</h1>
-  <p>
-    حلّل المشاعر في النصوص العربية باستخدام نموذج <b>AraBERT</b> حقيقي،
-    مع عرض النتيجة ودرجة الثقة وتوزيع الاحتمالات بشكل واضح وسريع.
-  </p>
-  <div class="hero-meta" dir="ltr">
-    <div class="meta"><b>AraBERT</b> Model</div>
-    <div class="meta"><b>3</b> Classes</div>
-    <div class="meta"><b>128</b> Max Length</div>
-    <div class="meta"><b>Real</b> Inference</div>
+<div class="hero">
+  <div>
+    <h1>اعرف اتجاه المشاعر في أي نص عربي خلال ثوانٍ</h1>
+    <p>الصق تعليقًا أو تغريدة أو رأيًا، أو ارفع ملف CSV كاملًا. يصنّف النموذج كل نص إلى إيجابي أو سلبي أو محايد، ويعرض نسبة الثقة وتوزيع الاحتمالات.</p>
+    <div class="facts">
+      <div class="fact"><b>AraBERT</b><span>نموذج لغوي للعربية</span></div>
+      <div class="fact"><b>3 فئات</b><span>سلبي، محايد، إيجابي</span></div>
+      <div class="fact"><b>CSV</b><span>تحليل ملفات كاملة</span></div>
+    </div>
   </div>
+  <div class="hero-gauge">{gauge_svg(None, 0, on_dark=True)}</div>
 </div>
-""", unsafe_allow_html=True)
+""")
 
 
-# ---------- tabs ----------
+# =========================================================
+# TABS
+# =========================================================
+
 tab_text, tab_csv, tab_about = st.tabs(
-    ["✦ تحليل النص", "▦ تحليل CSV", "◈ عن النظام"]
+    ["تحليل نص", "تحليل ملف CSV", "عن المشروع"]
 )
 
 
@@ -573,57 +507,54 @@ tab_text, tab_csv, tab_about = st.tabs(
 # TAB 1 — SINGLE TEXT
 # =========================================================
 with tab_text:
-    st.markdown("""
-    <div class="section-head" dir="rtl">
-      <div>
-        <div class="eyebrow">SINGLE TEXT ANALYSIS</div>
-        <div class="section-title">اكتشف المشاعر في أي نص عربي</div>
-      </div>
-      <div class="section-note">أدخل النص ← حلّل ← استكشف القرار</div>
-    </div>
-    """, unsafe_allow_html=True)
+    result = st.session_state.get("single_result")
 
-    left, right = st.columns([1.03, .97], gap="large")
+    left, right = st.columns([1, 1], gap="large")
 
     with left:
-        st.markdown("""
-        <div class="card" dir="rtl">
-          <div class="card-label">Arabic Text</div>
-          <div class="card-title">النص المراد تحليله</div>
-          <div class="card-sub">اكتب جملة أو تغريدة أو رأيًا باللغة العربية.</div>
-        </div>
-        """, unsafe_allow_html=True)
+        html('<div class="h2">أدخل النص</div><p class="lead">اكتب جملة أو تغريدة أو رأيًا بالعربية، أو جرّب أحد الأمثلة.</p>')
+
+        ex_cols = st.columns(len(EXAMPLES), gap="small")
+        for col, (name, sample) in zip(ex_cols, EXAMPLES.items()):
+            with col:
+                st.button(
+                    name,
+                    key=f"ex_{name}",
+                    use_container_width=True,
+                    on_click=set_example,
+                    args=(sample,),
+                )
 
         user_text = st.text_area(
-            "Arabic text",
-            placeholder="مثال: الخدمة كانت ممتازة والتجربة أفضل مما توقعت ✨",
-            height=190,
+            "النص العربي",
+            placeholder="مثال: الخدمة كانت ممتازة والتجربة أفضل مما توقعت",
+            height=200,
             label_visibility="collapsed",
             key="single_text",
         )
 
-        st.markdown('<div class="primary-btn">', unsafe_allow_html=True)
-        analyze_button = st.button(
-            "✦  تحليل المشاعر",
-            use_container_width=True,
-            key="analyze_single",
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # Clear is intentionally separated from the primary action.
-        clear_button = st.button(
-            "مسح النص",
-            use_container_width=True,
-            key="clear_single",
-            on_click=clear_single_input,
-        )
+        b1, b2 = st.columns([2, 1], gap="small")
+        with b1:
+            analyze_button = st.button(
+                "حلّل المشاعر",
+                type="primary",
+                use_container_width=True,
+                key="analyze_single",
+            )
+        with b2:
+            st.button(
+                "مسح",
+                use_container_width=True,
+                key="clear_single",
+                on_click=clear_single_input,
+            )
 
         if analyze_button:
             if not user_text.strip():
-                st.warning("اكتب نصًا عربيًا أولًا ثم اضغط تحليل المشاعر.")
+                st.warning("اكتب نصًا عربيًا أولًا ثم اضغط «حلّل المشاعر».")
             else:
                 try:
-                    with st.spinner("جاري تحليل النص باستخدام AraBERT..."):
+                    with st.spinner("جارٍ تحليل النص..."):
                         tokenizer, model = load_model()
                         processed_text, predicted_label, confidence, probabilities_dict = predict_sentiment(
                             user_text, tokenizer, model
@@ -634,116 +565,70 @@ with tab_text:
                         "confidence": confidence,
                         "probabilities_dict": probabilities_dict,
                     }
+                    result = st.session_state.single_result
                 except Exception as exc:
                     st.error("حدث خطأ أثناء تشغيل النموذج.")
                     st.exception(exc)
 
-        result = st.session_state.get("single_result")
-
     with right:
+        html('<div class="h2">النتيجة</div><p class="lead">القرار النهائي ودرجة الثقة وتوزيع الاحتمالات.</p>')
+
         if not result:
-            st.markdown("""
-            <div class="result-card" dir="rtl">
-              <div class="result-caption">AI SENTIMENT RESULT</div>
-              <div class="result-icon">✦</div>
-              <div class="result-label" style="font-size:21px;">جاهز للتحليل</div>
-              <div class="result-en">Your sentiment result will appear here</div>
+            html(f"""
+            <div class="panel panel-idle">
+              <div class="gauge-box">{gauge_svg(None, 0)}</div>
+              <div style="text-align:center;margin-top:10px;">
+                <div style="font-family:'Readex Pro',sans-serif;font-weight:600;font-size:20px;color:#0E1A2B;">لا توجد نتيجة بعد</div>
+                <div class="hint" style="margin-top:4px;">اكتب نصًا واضغط «حلّل المشاعر» لتظهر النتيجة هنا.</div>
+              </div>
             </div>
-            """, unsafe_allow_html=True)
+            """)
         else:
             label = result["predicted_label"]
-            ar_label = ARABIC_LABELS[label]
-            confidence = result["confidence"] * 100
+            probs = result["probabilities_dict"]
+            conf = result["confidence"]
+            score = probs["Positive"] - probs["Negative"]
+            color = SENTIMENT_COLORS[label]
 
-            st.markdown(f"""
-            <div class="result-card" dir="rtl">
-              <div class="result-caption">AI SENTIMENT RESULT</div>
-              <div class="result-icon">✦</div>
-              <div class="result-label">{ar_label}</div>
-              <div class="result-en">Predicted Sentiment · {label}</div>
-              <div class="confidence">درجة الثقة {confidence:.2f}%</div>
+            rows = ""
+            for name in LABELS_ORDER:
+                v = probs[name] * 100
+                rows += (
+                    f'<div class="prob"><div class="prob-name">{ARABIC_LABELS[name]}</div>'
+                    f'<div class="track"><div class="fill" style="width:{max(0, min(100, v)):.2f}%;background:{SENTIMENT_COLORS[name]};"></div></div>'
+                    f'<div class="prob-val">{v:.2f}%</div></div>'
+                )
+
+            html(f"""
+            <div class="panel">
+              <div class="result-top">
+                <div class="result-kicker">التصنيف المتوقع</div>
+                <div class="badge">الثقة {conf*100:.1f}%</div>
+              </div>
+              <div class="result-label" style="color:{color};">{ARABIC_LABELS[label]}</div>
+              <div class="result-sub">{label}</div>
+              <div class="gauge-box">{gauge_svg(label, score)}</div>
+              <div class="probs">{rows}</div>
             </div>
-            """, unsafe_allow_html=True)
+            """)
 
-    if result:
-        st.markdown("""
-        <div class="section-head" dir="rtl">
-          <div>
-            <div class="eyebrow">PROBABILITY DISTRIBUTION</div>
-            <div class="section-title">توزيع احتمالات المشاعر</div>
-          </div>
-          <div class="section-note">Softmax scores from the real model</div>
-        </div>
-        """, unsafe_allow_html=True)
+            if conf < LOW_CONFIDENCE:
+                html('<div class="notice">درجة الثقة منخفضة، والاحتمالات متقاربة بين الفئات. يُفضّل مراجعة هذا النص يدويًا.</div>')
 
-        pcols = st.columns(3, gap="medium")
-        for col, label in zip(pcols, LABELS_ORDER):
-            value = result["probabilities_dict"][label] * 100
-            ar = ARABIC_LABELS[label]
-            icon = SENTIMENT_ICONS[label]
-            with col:
-                st.markdown(f"""
-                <div class="prob-card" dir="rtl">
-                  <div class="prob-top">
-                    <div>
-                      <div class="prob-name">{ar} <span class="prob-en">{label}</span></div>
-                    </div>
-                    <div style="font-size:17px;color:#7a83f4;">{icon}</div>
-                  </div>
-                  <div class="prob-value" style="margin-top:12px;">{value:.2f}%</div>
-                  <div class="bar"><div class="bar-fill" style="width:{max(0,min(100,value)):.2f}%;"></div></div>
-                </div>
-                """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="section-head" dir="rtl">
-          <div>
-            <div class="eyebrow">HOW THE AI DECIDED</div>
-            <div class="section-title">كيف وصل النموذج إلى النتيجة؟</div>
-          </div>
-        </div>
-        <div class="pipeline" dir="ltr">
-          <div class="step"><div class="step-num">01</div><div class="step-title">User Input</div><div class="step-desc">النص العربي الذي أدخلته</div></div>
-          <div class="arrow">→</div>
-          <div class="step"><div class="step-num">02</div><div class="step-title">Preprocessing</div><div class="step-desc">تنظيف وتطبيع النص</div></div>
-          <div class="arrow">→</div>
-          <div class="step"><div class="step-num">03</div><div class="step-title">Tokenizer</div><div class="step-desc">تحويل النص إلى tokens</div></div>
-          <div class="arrow">→</div>
-          <div class="step"><div class="step-num">04</div><div class="step-title">AraBERT</div><div class="step-desc">حساب logits للنموذج الحقيقي</div></div>
-          <div class="arrow">→</div>
-          <div class="step"><div class="step-num">05</div><div class="step-title">Prediction</div><div class="step-desc">Softmax ثم أعلى احتمال</div></div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        with st.expander("عرض النص بعد الـ preprocessing"):
-            st.code(result["processed_text"], language="text")
+            with st.expander("النص بعد المعالجة (preprocessing)"):
+                st.code(result["processed_text"], language="text")
 
 
 # =========================================================
 # TAB 2 — CSV
 # =========================================================
 with tab_csv:
-    st.markdown("""
-    <div class="section-head" dir="rtl">
-      <div>
-        <div class="eyebrow">BATCH ANALYSIS</div>
-        <div class="section-title">حلّل آلاف النصوص دفعة واحدة</div>
-      </div>
-      <div class="section-note">CSV → AraBERT → Results</div>
-    </div>
-    """, unsafe_allow_html=True)
+    html('<div class="h2">حلّل ملفًا كاملًا</div><p class="lead">ارفع ملف CSV، اختر عمود النص، وسيُضاف لكل صف التصنيف والثقة والاحتمالات.</p>')
 
-    st.markdown("""
-    <div class="callout" dir="rtl">
-      ارفع ملف CSV يحتوي على عمود نصي، اختر العمود المطلوب،
-      ثم شغّل النموذج للحصول على المشاعر والاحتمالات وملف نتائج قابل للتحميل.
-    </div>
-    """, unsafe_allow_html=True)
-
-    left, right = st.columns([.85, 1.15], gap="large")
+    left, right = st.columns([.9, 1.1], gap="large")
 
     with left:
-        st.markdown('<div class="card" dir="rtl"><div class="card-label">CSV DATASET</div><div class="card-title">رفع ملف البيانات</div><div class="card-sub">UTF-8 أو UTF-8-SIG</div></div>', unsafe_allow_html=True)
+        html('<div class="field-label">ملف البيانات</div><div class="hint" style="margin-bottom:8px;">ترميز UTF-8 أو UTF-8-SIG</div>')
         uploaded_file = st.file_uploader(
             "رفع ملف CSV",
             type=["csv"],
@@ -767,23 +652,22 @@ with tab_csv:
                     st.warning("الملف فارغ أو لا يحتوي على أعمدة.")
                 else:
                     text_column = st.selectbox(
-                        "اختر عمود النص",
+                        "عمود النص",
                         fieldnames,
                         key="csv_text_column",
                     )
                     st.caption(f"عدد السجلات: {len(rows):,}")
 
-                    st.markdown('<div class="primary-btn">', unsafe_allow_html=True)
                     analyze_csv_button = st.button(
-                        "✦  بدء التحليل",
+                        "ابدأ تحليل الملف",
+                        type="primary",
                         use_container_width=True,
                         key="analyze_csv",
                     )
-                    st.markdown("</div>", unsafe_allow_html=True)
 
                     if analyze_csv_button:
                         try:
-                            with st.spinner("جاري تحليل الملف باستخدام النموذج..."):
+                            with st.spinner("جارٍ تحليل الملف..."):
                                 tokenizer, model = load_model()
                                 results = []
                                 progress = st.progress(0.0)
@@ -830,31 +714,39 @@ with tab_csv:
         csv_results = st.session_state.get("csv_results")
 
         if not csv_results:
-            st.markdown("""
-            <div class="result-card" style="min-height:330px;" dir="rtl">
-              <div style="font-size:42px;margin-bottom:10px;">▦</div>
-              <div class="result-label" style="font-size:22px;">بانتظار ملف البيانات</div>
-              <div class="result-en">Upload a CSV to see batch sentiment analytics</div>
+            html("""
+            <div class="panel" style="min-height:300px;display:flex;flex-direction:column;justify-content:center;text-align:center;">
+              <div style="font-family:'Readex Pro',sans-serif;font-weight:600;font-size:20px;color:#0E1A2B;">لا توجد نتائج بعد</div>
+              <div class="hint" style="margin-top:6px;">ارفع ملف CSV واضغط «ابدأ تحليل الملف» لتظهر الإحصائيات هنا.</div>
             </div>
-            """, unsafe_allow_html=True)
+            """)
         else:
             counts = Counter(row.get("sentiment", "Neutral") for row in csv_results)
             total_rows = len(csv_results)
-            stats = [
-                ("إجمالي السجلات", f"{total_rows:,}", "Total"),
-                ("إيجابي", f"{counts.get('Positive',0)/total_rows*100:.1f}%", f"{counts.get('Positive',0):,} سجل"),
-                ("محايد", f"{counts.get('Neutral',0)/total_rows*100:.1f}%", f"{counts.get('Neutral',0):,} سجل"),
-                ("سلبي", f"{counts.get('Negative',0)/total_rows*100:.1f}%", f"{counts.get('Negative',0):,} سجل"),
-            ]
-            st.markdown('<div class="info-grid">', unsafe_allow_html=True)
-            # Render through columns so cards remain responsive in Streamlit.
-            cols = st.columns(4, gap="small")
-            for col, (k, v, s) in zip(cols, stats):
-                with col:
-                    st.markdown(f'<div class="info-box" dir="rtl"><div class="info-k">{k}</div><div class="info-v">{v}</div><div class="info-s">{s}</div></div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            analysed = [r for r in csv_results if r.get("processed_text")]
+            avg_conf = (
+                sum(float(r["confidence"]) for r in analysed) / len(analysed) * 100
+                if analysed else 0.0
+            )
 
-            st.markdown('<div class="section-head" dir="rtl"><div><div class="eyebrow">PREVIEW</div><div class="section-title">معاينة النتائج</div></div></div>', unsafe_allow_html=True)
+            def pct(name):
+                return counts.get(name, 0) / total_rows * 100
+
+            html(f"""
+            <div class="stats">
+              <div class="stat"><div class="stat-k">إجمالي السجلات</div><div class="stat-v">{total_rows:,}</div><div class="stat-s">متوسط الثقة {avg_conf:.1f}%</div></div>
+              <div class="stat"><div class="stat-k">إيجابي</div><div class="stat-v" style="color:var(--pos);">{pct('Positive'):.1f}%</div><div class="stat-s">{counts.get('Positive',0):,} سجل</div></div>
+              <div class="stat"><div class="stat-k">محايد</div><div class="stat-v" style="color:var(--neu);">{pct('Neutral'):.1f}%</div><div class="stat-s">{counts.get('Neutral',0):,} سجل</div></div>
+              <div class="stat"><div class="stat-k">سلبي</div><div class="stat-v" style="color:var(--neg);">{pct('Negative'):.1f}%</div><div class="stat-s">{counts.get('Negative',0):,} سجل</div></div>
+            </div>
+            <div class="stack">
+              <div style="width:{pct('Positive'):.2f}%;background:var(--pos);"></div>
+              <div style="width:{pct('Neutral'):.2f}%;background:var(--neu);"></div>
+              <div style="width:{pct('Negative'):.2f}%;background:var(--neg);"></div>
+            </div>
+            """)
+
+            html('<div class="field-label">معاينة أول 50 صفًا</div>')
             st.dataframe(csv_results[:50], use_container_width=True, hide_index=True)
 
             output = io.StringIO()
@@ -867,7 +759,7 @@ with tab_csv:
             writer.writerows(csv_results)
 
             st.download_button(
-                "↓  تنزيل النتائج كاملة CSV",
+                "تنزيل النتائج كاملة (CSV)",
                 data=output.getvalue().encode("utf-8-sig"),
                 file_name="arabic_sentiment_results.csv",
                 mime="text/csv",
@@ -880,83 +772,43 @@ with tab_csv:
 # TAB 3 — ABOUT
 # =========================================================
 with tab_about:
-    st.markdown("""
-    <div class="section-head" dir="rtl">
-      <div>
-        <div class="eyebrow">SYSTEM INTELLIGENCE</div>
-        <div class="section-title">عن Arabic Sentiment Compass</div>
-      </div>
+    html(f"""
+    <div class="h2">عن المشروع</div>
+    <p class="lead">نظام لتحليل المشاعر في النصوص العربية، يعمل بنموذج AraBERT حقيقي بدون نتائج تجريبية أو ثابتة. يدعم تحليل نص واحد أو ملف CSV كامل.</p>
+
+    <div class="kv">
+      <div><div class="k">النموذج</div><div class="v">{MODEL_ID.split('/')[-1]}</div></div>
+      <div><div class="k">الفئات</div><div class="v" style="direction:rtl;">سلبي، محايد، إيجابي</div></div>
+      <div><div class="k">الحد الأقصى للنص</div><div class="v">{MAX_LENGTH} tokens</div></div>
     </div>
-    """, unsafe_allow_html=True)
 
-    st.markdown("""
-    <div class="card" dir="rtl">
-      <div class="card-label">PROJECT OVERVIEW</div>
-      <div class="card-title">نظام تحليل مشاعر عربي مبني على AraBERT</div>
-      <div class="card-sub" style="line-height:2;">
-        تطبيق NLP عملي يقدّم inference حقيقي على نصوص عربية، ويعرض التصنيف،
-        درجة الثقة، وتوزيع الاحتمالات مع دعم التحليل الفردي وتحليل ملفات CSV.
-      </div>
+    <div class="h2">كيف يعمل التحليل</div>
+    <div class="steps">
+      <div><b>التحقق</b><span>التأكد من أن النص غير فارغ</span></div>
+      <div><b>التنظيف</b><span>توحيد الحروف وإزالة التشكيل واستبدال الروابط والمنشنات</span></div>
+      <div><b>التقطيع</b><span>تحويل النص إلى tokens بواسطة tokenizer الخاص بـ AraBERT</span></div>
+      <div><b>النموذج</b><span>حساب درجات الفئات الثلاث</span></div>
+      <div><b>القرار</b><span>Softmax ثم اختيار الفئة الأعلى احتمالًا</span></div>
     </div>
-    """, unsafe_allow_html=True)
 
-    st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
-
-    cols = st.columns(3, gap="medium")
-    about_items = [
-        ("MODEL", "AraBERT", "aubmindlab/bert-base-arabertv02-twitter"),
-        ("TASK", "3-Class", "Negative • Neutral • Positive"),
-        ("MAX LENGTH", "128", "Tokenizer truncation limit"),
-    ]
-    for col, (k, v, s) in zip(cols, about_items):
-        with col:
-            st.markdown(f'<div class="info-box" dir="rtl"><div class="info-k">{k}</div><div class="info-v">{v}</div><div class="info-s">{s}</div></div>', unsafe_allow_html=True)
-
-    st.markdown("""
-    <div class="section-head" dir="rtl">
-      <div>
-        <div class="eyebrow">INFERENCE PIPELINE</div>
-        <div class="section-title">مسار التنبؤ</div>
-      </div>
+    <div class="h2">حدود الاستخدام</div>
+    <div class="limits">
+      <ul>
+        <li>النموذج مُدرَّب على نصوص قصيرة شبيهة بالتغريدات، ويكون أدق مع هذا النوع من النصوص.</li>
+        <li>النصوص الأطول من {MAX_LENGTH} رمزًا تُقتطع، فيُحلَّل أولها فقط.</li>
+        <li>السخرية والمعاني الضمنية قد تُصنَّف خطأً، لذلك راجع النتائج منخفضة الثقة يدويًا.</li>
+      </ul>
     </div>
-    <div class="pipeline" dir="ltr">
-      <div class="step"><div class="step-num">01</div><div class="step-title">Validation</div><div class="step-desc">تحقق من النص المدخل</div></div>
-      <div class="arrow">→</div>
-      <div class="step"><div class="step-num">02</div><div class="step-title">Preprocessing</div><div class="step-desc">التنظيف والتطبيع الرسمي</div></div>
-      <div class="arrow">→</div>
-      <div class="step"><div class="step-num">03</div><div class="step-title">Tokenizer</div><div class="step-desc">AraBERT tokenizer</div></div>
-      <div class="arrow">→</div>
-      <div class="step"><div class="step-num">04</div><div class="step-title">Model</div><div class="step-desc">Sequence classification</div></div>
-      <div class="arrow">→</div>
-      <div class="step"><div class="step-num">05</div><div class="step-title">Softmax</div><div class="step-desc">Probability distribution</div></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div class="section-head" dir="rtl">
-      <div>
-        <div class="eyebrow">SUPPORTED OUTPUT</div>
-        <div class="section-title">ماذا يعرض النظام؟</div>
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    cols = st.columns(4, gap="small")
-    outputs = [
-        ("Sentiment", "التصنيف النهائي"),
-        ("Confidence", "درجة الثقة"),
-        ("Probabilities", "احتمالات الفئات الثلاث"),
-        ("CSV Export", "نتائج قابلة للتحميل"),
-    ]
-    for col, (k, v) in zip(cols, outputs):
-        with col:
-            st.markdown(f'<div class="info-box" dir="rtl"><div class="info-k">{k}</div><div class="info-v">{v}</div></div>', unsafe_allow_html=True)
+    """)
 
 
-# ---------- footer ----------
-st.markdown("""
-<div class="footer" dir="rtl">
-  <div><strong>Arabic Sentiment Compass</strong> · Arabic NLP Portfolio Project</div>
-  <div>Real AraBERT Inference · Streamlit</div>
+# =========================================================
+# FOOTER
+# =========================================================
+
+html(f"""
+<div class="footer">
+  <div>Arabic Sentiment Compass · تطوير <a href="{GITHUB_URL}" target="_blank" rel="noopener">عبدالرحمن عقل</a></div>
+  <div>Streamlit · Hugging Face Transformers · AraBERT</div>
 </div>
-""", unsafe_allow_html=True)
+""")
