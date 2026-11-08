@@ -1,697 +1,343 @@
-# 🧭 Arabic Sentiment Compass
+# Arabic Sentiment Compass
 
-> **Arabic Sentiment Analysis powered by Twitter-adapted AraBERT**
+**Arabic sentiment analysis powered by a fine-tuned, Twitter-adapted AraBERT.**
 
-An end-to-end Arabic Natural Language Processing system for classifying Arabic social-media text into **Negative, Neutral, and Positive** sentiment using a fine-tuned Twitter-adapted AraBERT transformer.
+An end-to-end Arabic NLP project: a reproducible research pipeline for classifying noisy Arabic social-media text into **Negative, Neutral, or Positive**, and an Arabic RTL **Streamlit app** for real-time and CSV batch inference.
 
-The project combines a reproducible NLP research pipeline with a professional **Arabic RTL Streamlit application** supporting both real-time single-text analysis and CSV batch inference.
-
----
-
-## 🚀 Live Demo
-
-### 🌐 Try Arabic Sentiment Compass
-
-👉 [Launch the Live Streamlit Application](https://arabic-sentiment-compasss.streamlit.app/)
-
-The application supports:
-
-* Arabic single-text sentiment analysis
-* Real-time transformer inference
-* Arabic RTL interface
-* Sentiment probabilities
-* Confidence score
-* Visual sentiment compass
-* CSV batch sentiment analysis
-* Downloadable prediction results
+**[Try the live app](https://arabic-sentiment-compasss.streamlit.app/)** | [Source code](https://github.com/AbdelrhmanAkl/Arabic-Sentiment-Compass) | [Model on Hugging Face](https://huggingface.co/AbdelrahmanAkl/arabic-sentiment-compass-arabert)
 
 ---
 
-## 🎯 Project Overview
+## At a Glance
 
-Arabic sentiment analysis presents several challenges that are less pronounced in standard English NLP tasks.
+| | |
+| --- | --- |
+| **Task** | 3-class Arabic sentiment classification |
+| **Model** | Twitter-adapted AraBERT (`aubmindlab/bert-base-arabertv02-twitter`), fine-tuned |
+| **Test accuracy** | **88.22 ± 0.19%** |
+| **Test macro F1** | **87.73 ± 0.17%** |
+| **Training data** | 13,915 examples from ASTD + ArSAS |
+| **Interface** | Arabic RTL Streamlit app, single text and CSV batch |
 
-Arabic social-media text can contain:
-
-* Dialectal vocabulary
-* Spelling variations
-* Character elongation
-* Arabic diacritics
-* Emojis
-* Mentions
-* URLs
-* Informal writing
-* Noisy user-generated content
-
-This project investigates a reproducible three-class sentiment classification pipeline designed specifically for noisy Arabic Twitter-style text.
-
-The final practical system uses a **Twitter-adapted AraBERT transformer** and provides an interactive application for real-world inference.
+Results are the mean ± standard deviation over three training seeds on a fixed test split (details below).
 
 ---
 
-## 🧠 What Does the System Do?
+## The Application
 
-The system takes Arabic text as input and predicts one of three sentiment classes:
+### Single-text analysis
 
-|  ID | Sentiment | Arabic |
-| --: | --------- | ------ |
-| `0` | Negative  | سلبي   |
-| `1` | Neutral   | محايد  |
-| `2` | Positive  | إيجابي |
+- Arabic RTL interface
+- Real transformer inference (no mock results)
+- Predicted class in Arabic and English
+- Confidence score and probabilities for all three classes
+- Visual **sentiment compass**: a gauge whose needle moves between negative and positive
+- One-click example texts (positive, negative, neutral)
+- Warning when confidence is below 60%
+- Input validation and loading states
+- Preprocessed text view for transparency
+
+### CSV batch analysis
+
+1. Upload a CSV file (UTF-8 or UTF-8-SIG)
+2. Choose the text column
+3. Run the model on every row
+4. Review summary statistics: totals, class percentages, average confidence
+5. Preview the first 50 rows
+6. Download the full results
+
+All original columns are kept, and these columns are added:
+
+```text
+processed_text
+sentiment
+sentiment_ar
+confidence
+negative_probability
+neutral_probability
+positive_probability
+```
+
+Rows with an empty text cell are labelled `Neutral` with zero confidence and zero probabilities.
+
+### Design
+
+Arabic-first RTL layout with a colourful gradient identity. Each sentiment keeps the same colour everywhere: green for positive, amber for neutral, red for negative. The interface is responsive and respects reduced-motion preferences.
+
+---
+
+## Model
+
+| Item | Value |
+| --- | --- |
+| Base checkpoint | `aubmindlab/bert-base-arabertv02-twitter` |
+| Deployed model | [`AbdelrahmanAkl/arabic-sentiment-compass-arabert`](https://huggingface.co/AbdelrahmanAkl/arabic-sentiment-compass-arabert) |
+| Architecture | `AutoModelForSequenceClassification` |
+| Classes | 3 |
+| Max sequence length | 128 tokens |
+| Primary metric | Macro F1 |
+
+The app loads the tokenizer and classifier from the Hugging Face Model Hub. The model checkpoint is not stored in this repository because of its size. On first launch, the download can take a moment.
+
+| ID | Sentiment | Arabic |
+| --: | --- | --- |
+| `0` | Negative | سلبي |
+| `1` | Neutral | محايد |
+| `2` | Positive | إيجابي |
 
 ### Example
 
 ```text
-Input:
-الخدمة ممتازة والتجربة كانت رائعة جدًا!
-
-Prediction:
-Positive — إيجابي
+Input:      الخدمة ممتازة والتجربة كانت رائعة جدًا!
+Prediction: Positive — إيجابي
 ```
-
-The application also displays the model's scores for all three classes.
 
 ---
 
-## 🤖 Model
+## Prediction Pipeline
 
-### Base Model
-
-```text
-aubmindlab/bert-base-arabertv02-twitter
-```
-
-The model is specifically adapted to Twitter-style Arabic text, making it a strong fit for noisy social-media sentiment analysis.
-
-### Final Application Model
+Both single-text and CSV inputs follow the same path:
 
 ```text
-randsalem/arabic-sentiment-compass-arabert
+        Single text  /  CSV rows
+                  │
+                  ▼
+          Input validation
+                  │
+                  ▼
+        Arabic preprocessing
+                  │
+                  ▼
+              Tokenizer
+                  │
+                  ▼
+     Twitter-adapted AraBERT  →  logits
+                  │
+                  ▼
+        Softmax  →  probabilities
+                  │
+                  ▼
+     Argmax  →  Negative / Neutral / Positive
+                  │
+                  ▼
+       Results card  /  CSV export
 ```
 
-The deployed application loads the trained tokenizer and sequence-classification model from the Hugging Face Model Hub.
+**Confidence** is the highest Softmax score for the predicted class. It is **not** a calibrated probability.
 
-### Architecture
+### Arabic preprocessing
 
-```text
-AutoModelForSequenceClassification
-```
+The function `preprocess_arabic_tweet` reduces noise while keeping sentiment-bearing content (such as emojis). It applies:
 
-### Configuration
+- URL and mention normalization
+- Arabic diacritic removal
+- Tatweel removal
+- Alef normalization
+- `ى` → `ي` normalization
+- Reduction of excessive character repetition
+- Whitespace normalization
 
-| Parameter               | Value          |
-| ----------------------- | -------------- |
-| Number of Classes       | 3              |
-| Maximum Sequence Length | 128 tokens     |
-| Primary Metric          | Macro F1       |
-| Model Family            | AraBERT        |
-| Domain Adaptation       | Twitter Arabic |
+The same preprocessing is used in training and in the deployed app to avoid train/inference mismatch.
 
 ---
 
-## 🔄 End-to-End Prediction Pipeline
+## Experimental Methodology
 
-```text
-                  Arabic Text
-                      │
-                      ▼
-              Input Validation
-                      │
-                      ▼
-             Arabic Preprocessing
-                      │
-                      ▼
-                  Tokenizer
-                      │
-                      ▼
-          Twitter-adapted AraBERT
-                      │
-                      ▼
-                    Logits
-                      │
-                      ▼
-                  Softmax
-                      │
-                      ▼
-             Class Probabilities
-                      │
-                      ▼
-                 Argmax
-                      │
-                      ▼
-        ┌─────────────┼─────────────┐
-        ▼             ▼             ▼
-     Negative      Neutral       Positive
-      سلبي          محايد          إيجابي
-```
+The research was done in two stages.
 
-### Confidence Interpretation
+### Stage I — ASTD-centred development
 
-The displayed confidence represents the **maximum Softmax score** for the predicted class.
+Explored preprocessing, class weighting, emoji handling, character normalization, training duration, AraSarcasm augmentation, random oversampling, and encoder choice.
 
-It should **not** be interpreted as a calibrated probability.
+| Model | Accuracy | Macro F1 |
+| --- | --: | --: |
+| Selected light-preprocessed AraBERT | 73.80% | 71.49% |
+| MARBERT (strongest ASTD-only encoder) | 75.60% | 73.34% |
 
----
+MARBERT was not carried into Stage II because Stage II was designed as a controlled comparison inside the AraBERT family.
 
-## 🧹 Arabic Text Preprocessing
+### Stage II — combined ASTD + ArSAS experiment
 
-The project uses a dedicated preprocessing function:
-
-```text
-preprocess_arabic_tweet
-```
-
-The preprocessing pipeline preserves important sentiment-bearing information while reducing common noise in Arabic social-media text.
-
-It includes:
-
-* URL normalization
-* Mention normalization
-* Arabic diacritic removal
-* Tatweel removal
-* Alef normalization
-* `ى` normalization
-* Excessive character repetition reduction
-* Whitespace normalization
-
-The same preprocessing logic is maintained between the trained system and the deployed application to reduce training/inference inconsistencies.
-
----
-
-# 📊 Experimental Methodology
-
-The research workflow was divided into two major stages.
-
-## Stage I — ASTD-Centered Development
-
-The first stage investigated several components of Arabic sentiment classification, including:
-
-* Arabic preprocessing
-* Class weighting
-* Emoji handling
-* Character normalization
-* Training duration
-* AraSarcasm augmentation
-* Random oversampling
-* Encoder selection
-
-### Selected Light-Preprocessed AraBERT
-
-| Metric   |      Score |
-| -------- | ---------: |
-| Accuracy | **73.80%** |
-| Macro F1 | **71.49%** |
-
-### Strongest Recorded ASTD-Only Encoder
-
-MARBERT achieved:
-
-| Metric   |      Score |
-| -------- | ---------: |
-| Accuracy | **75.60%** |
-| Macro F1 | **73.34%** |
-
-MARBERT was not selected as the final Stage II application model because Stage II was designed as a controlled comparison within the AraBERT family.
-
----
-
-# 🧪 Stage II — Final Combined Experiment
-
-The final experimental setup combined filtered examples from:
-
-* ASTD
-* ArSAS
-
-The resulting corpus contained:
-
-```text
-13,915 unique examples
-```
-
-### Class Distribution
+The final corpus combines filtered examples from **ASTD** and **ArSAS**, with **13,915 unique examples**. ArSAS examples were kept for the three target classes using a sentiment-confidence threshold of at least `0.75`.
 
 | Sentiment | Samples |
-| --------- | ------: |
-| Negative  |   5,880 |
-| Neutral   |   5,062 |
-| Positive  |   2,973 |
+| --- | --: |
+| Negative | 5,880 |
+| Neutral | 5,062 |
+| Positive | 2,973 |
 
-### Data Split
-
-| Split      | Samples |
-| ---------- | ------: |
-| Training   |  11,132 |
-| Validation |   1,391 |
-| Test       |   1,392 |
-
-ArSAS examples were retained for the three target sentiment classes using a sentiment-confidence threshold of at least `0.75`.
+| Split | Samples |
+| --- | --: |
+| Training | 11,132 |
+| Validation | 1,391 |
+| Test | 1,392 |
 
 ---
 
-# 🏆 Final Model Results
+## Final Results
 
-Evaluation was performed on the fixed Stage II test split.
+Evaluated on the fixed Stage II test split.
 
-| System                                 |          Accuracy |          Macro F1 |
-| -------------------------------------- | ----------------: | ----------------: |
-| Character TF-IDF + Logistic Regression |        **81.47%** |        **80.42%** |
-| Standard AraBERT                       | **87.36 ± 0.45%** | **86.83 ± 0.52%** |
-| **Twitter-adapted AraBERT**            | **88.22 ± 0.19%** | **87.73 ± 0.17%** |
-| Baseline + Raw-Logit Ensemble          | **88.36 ± 0.26%** | **87.89 ± 0.30%** |
+| System | Accuracy | Macro F1 |
+| --- | --: | --: |
+| Character TF-IDF + Logistic Regression | 81.47% | 80.42% |
+| Standard AraBERT | 87.36 ± 0.45% | 86.83 ± 0.52% |
+| **Twitter-adapted AraBERT** (deployed) | **88.22 ± 0.19%** | **87.73 ± 0.17%** |
+| Baseline + raw-logit ensemble | 88.36 ± 0.26% | 87.89 ± 0.30% |
 
-### 🥇 Practical Application Model
+The Twitter-adapted AraBERT is the model used by the app. The ensemble is a research extension, not the deployed model.
 
-The **Twitter-adapted AraBERT** is the main model used by the practical application.
+### Egyptian-focused diagnostic
 
-The ensemble is treated as an optional research extension rather than the primary deployed model.
+Evaluation on the **322 ASTD examples** inside the unseen Stage II test split:
 
----
+| Metric | Score |
+| --- | --: |
+| Accuracy | 70.39 ± 1.00% |
+| Macro F1 | 67.19 ± 0.48% |
 
-# 🇪🇬 Egyptian-Focused Evaluation
-
-An additional diagnostic evaluation was performed on the **322 ASTD examples** contained within the unseen Stage II test split.
-
-Results:
-
-| Metric   |             Score |
-| -------- | ----------------: |
-| Accuracy | **70.39 ± 1.00%** |
-| Macro F1 | **67.19 ± 0.48%** |
-
-### Important Interpretation
-
-The main Stage II result should **not** be described as an exclusively Egyptian Arabic result.
-
-The final corpus is multi-source, and the Egyptian-focused evaluation is provided separately to measure performance on the available ASTD subset.
+The main Stage II result should **not** be described as an exclusively Egyptian Arabic result. The corpus is multi-source, and this subset is reported separately to show performance on the available ASTD data.
 
 ---
 
-# 🖥️ Streamlit Application
+## Reproducibility
 
-The project includes a professional Arabic-first Streamlit interface.
+| Setting | Value |
+| --- | --- |
+| Base checkpoint | `aubmindlab/bert-base-arabertv02-twitter` |
+| Max sequence length | 128 |
+| Learning rate | `3e-5` |
+| Weight decay | `0.01` |
+| Max epochs | 5 |
+| Early-stopping patience | 2 |
+| Batch size per device | 16 |
+| Gradient accumulation | 2 (effective batch size 32) |
+| Gradient clipping | 1.0 |
+| Loss | Class-weighted focal loss (γ = 2) |
+| Data split seed | 42 |
+| Training seeds | 21, 42, 77 |
+| Primary metric | Macro F1 |
 
-## Single Text Analysis
-
-The application supports:
-
-* Arabic RTL interface
-* Real AraBERT inference
-* Arabic sentiment labels
-* English sentiment labels
-* Confidence score
-* Probabilities for all three classes
-* Visual sentiment compass
-* Input validation
-* Loading states
-* Professional prediction cards
-
-### Example Workflow
+The full workflow (data preparation, filtering, training, evaluation, multi-seed experiments, statistics, and plots) is documented in the notebook:
 
 ```text
-Enter Arabic Text
-       ↓
-Preprocess
-       ↓
-AraBERT Inference
-       ↓
-Sentiment Prediction
-       ↓
-Probability Distribution
-       ↓
-Visual Result
+notebooks/Stage_II_Combined_ASTD_ArSAS_AraBERT_SentimentCompass_ipynb.ipynb
 ```
 
 ---
 
-# 📁 CSV Batch Analysis
-
-The application also supports batch sentiment analysis.
-
-Users can:
-
-1. Upload a CSV file
-2. Select the text column
-3. Run the trained model
-4. Generate sentiment predictions
-5. View confidence scores
-6. Inspect class probabilities
-7. Download the analyzed CSV
-
-The output includes:
-
-```text
-Processed Text
-Sentiment
-Arabic Sentiment
-Confidence
-Negative Probability
-Neutral Probability
-Positive Probability
-```
-
-This makes the application suitable for analyzing larger collections of Arabic social-media text.
-
----
-
-# 🎨 UI & UX
-
-Arabic Sentiment Compass follows a premium Arabic-first visual identity.
-
-### Design Characteristics
-
-* Arabic RTL layout
-* Dark / premium interface
-* Modern AI dashboard
-* Purple, blue, and cyan visual accents
-* Responsive information cards
-* Clear prediction hierarchy
-* Visual sentiment compass
-* Professional result presentation
-
-The interface is designed to make Arabic NLP inference accessible to both technical and non-technical users.
-
----
-
-# 🏗️ Project Architecture
-
-```text
-                         User
-                          │
-              ┌───────────┴───────────┐
-              │                       │
-         Single Text              CSV File
-              │                       │
-              └───────────┬───────────┘
-                          │
-                          ▼
-                Input Validation
-                          │
-                          ▼
-               Arabic Preprocessing
-                          │
-                          ▼
-                     Tokenizer
-                          │
-                          ▼
-              Twitter-adapted AraBERT
-                          │
-                          ▼
-                        Logits
-                          │
-                          ▼
-                       Softmax
-                          │
-                          ▼
-                Sentiment Prediction
-                          │
-             ┌────────────┼────────────┐
-             ▼            ▼            ▼
-          Negative     Neutral      Positive
-             │            │            │
-             └────────────┼────────────┘
-                          ▼
-                   Results & Export
-```
-
----
-
-# 📂 Project Structure
+## Project Structure
 
 ```text
 arabic-sentiment-compass/
-│
-├── app.py
+├── app.py                  # Streamlit application
 ├── requirements.txt
 ├── README.md
 ├── .gitignore
-│
-├── assets/
-│
 ├── data/
 │   └── ArSAS.txt
-│
 └── notebooks/
     └── Stage_II_Combined_ASTD_ArSAS_AraBERT_SentimentCompass_ipynb.ipynb
 ```
 
-The large trained model checkpoint is not stored directly in the GitHub repository because of its size.
-
-The deployed application loads the model from the Hugging Face Model Hub.
-
 ---
 
-# ⚙️ Installation
+## Run Locally
 
-## 1. Clone the Repository
-
-```bash
-git clone https://github.com/AbdelrhmanAkl/arabic-sentiment-compass.git
-```
-
-## 2. Enter the Project
+**Requirements:** Python **3.11 or newer** (the preprocessing regex uses possessive quantifiers).
 
 ```bash
-cd arabic-sentiment-compass
-```
+# 1. Clone
+git clone https://github.com/AbdelrhmanAkl/Arabic-Sentiment-Compass.git
+cd Arabic-Sentiment-Compass
 
-## 3. Create a Virtual Environment
-
-```bash
+# 2. Create a virtual environment
 python -m venv .venv
-```
 
-## 4. Activate the Environment
+# 3. Activate it
+# Windows PowerShell:  .\.venv\Scripts\Activate.ps1
+# macOS / Linux:       source .venv/bin/activate
 
-### Windows PowerShell
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-## 5. Install Dependencies
-
-```bash
+# 4. Install dependencies
 pip install -r requirements.txt
-```
 
-## 6. Run the Application
-
-```bash
+# 5. Run
 python -m streamlit run app.py
 ```
 
-The application will open in your browser.
+The app opens in your browser. The first prediction downloads the model from the Hugging Face Hub.
 
 ---
 
-# 📦 Main Technologies
+## Tech Stack
 
-| Category             | Technology                |
-| -------------------- | ------------------------- |
-| Programming Language | Python                    |
-| NLP                  | Arabic NLP / Transformers |
-| Transformer          | AraBERT                   |
-| Deep Learning        | PyTorch                   |
-| Model Library        | Hugging Face Transformers |
-| Tokenization         | Hugging Face Tokenizer    |
-| Application          | Streamlit                 |
-| Data Processing      | Pandas / NumPy            |
-| Model Hosting        | Hugging Face Model Hub    |
-| Deployment           | Streamlit Community Cloud |
-| Development          | Jupyter Notebook          |
+| Category | Technology |
+| --- | --- |
+| Language | Python |
+| Model | AraBERT (Twitter-adapted) |
+| Deep learning | PyTorch |
+| NLP library | Hugging Face Transformers |
+| App | Streamlit |
+| Model hosting | Hugging Face Model Hub |
+| Deployment | Streamlit Community Cloud |
+| Research | Jupyter Notebook |
 
 ---
 
-# 🔬 Reproducibility
+## Limitations
 
-The final training configuration includes:
-
-| Configuration           | Value                                     |
-| ----------------------- | ----------------------------------------- |
-| Base Checkpoint         | `aubmindlab/bert-base-arabertv02-twitter` |
-| Maximum Sequence Length | `128`                                     |
-| Learning Rate           | `3e-5`                                    |
-| Weight Decay            | `0.01`                                    |
-| Maximum Epochs          | `5`                                       |
-| Early Stopping Patience | `2`                                       |
-| Per-device Batch Size   | `16`                                      |
-| Gradient Accumulation   | `2`                                       |
-| Effective Batch Size    | `32`                                      |
-| Gradient Clipping       | `1.0`                                     |
-| Data Split Seed         | `42`                                      |
-| Training Seeds          | `21, 42, 77`                              |
-| Primary Metric          | Macro F1                                  |
-| Loss                    | Class-weighted Focal Loss                 |
-| Focal Gamma             | `2`                                       |
+- **Dataset composition:** the Stage II corpus is multi-source, not Egyptian-only.
+- **Dialect variation:** Arabic varies widely across dialects, regions, topics, and writing styles.
+- **Dataset differences:** collection methods, annotation guidelines, topics, and dialect mix cannot be fully harmonized.
+- **Confidence:** the displayed score is a raw Softmax value and is not calibrated.
+- **Input length:** texts longer than 128 tokens are truncated, so only the beginning is analysed.
+- **Sarcasm and implicit meaning:** sarcasm, irony, implicit sentiment, and context-dependent expressions can be misclassified. Review low-confidence results manually.
 
 ---
 
-# ⚠️ Limitations
+## Future Work
 
-Despite the strong experimental results, several limitations should be considered.
-
-### Dataset Composition
-
-The main Stage II dataset is multi-source and should not be treated as an Egyptian-only dataset.
-
-### Arabic Dialect Variation
-
-Arabic social-media text contains substantial variation across dialects, regions, topics, and writing styles.
-
-### Dataset Differences
-
-Differences in:
-
-* Collection methodology
-* Annotation guidelines
-* Topics
-* Dialect mixture
-
-cannot be completely eliminated.
-
-### Confidence Calibration
-
-The displayed confidence is a raw Softmax score and is **not calibrated**.
-
-### Sarcasm & Irony
-
-The system should not be interpreted as having perfect understanding of:
-
-* Sarcasm
-* Irony
-* Implicit sentiment
-* Context-dependent expressions
+- Confidence calibration
+- Faster inference (quantization)
+- More extensive Egyptian Arabic evaluation
+- Error-analysis dashboard
+- API endpoint
+- Hugging Face Spaces deployment
+- Comparison with additional Arabic Twitter models
+- Explainability and token-level sentiment interpretation
 
 ---
 
-# 🚀 Future Work
+## What This Project Demonstrates
 
-Potential improvements include:
-
-* Hugging Face Spaces deployment
-* Model quantization
-* Faster inference optimization
-* Confidence calibration
-* More extensive Egyptian Arabic evaluation
-* Error-analysis dashboard
-* Historical sentiment tracking
-* Advanced batch analytics
-* API endpoint
-* Additional Arabic Twitter model comparisons
-* Explainability analysis
-* Token-level sentiment interpretation
-
----
-
-# 📓 Research Notebook
-
-The repository includes the final Stage II research notebook:
+An end-to-end Arabic NLP workflow, from data to a deployed product:
 
 ```text
-Stage_II_Combined_ASTD_ArSAS_AraBERT_SentimentCompass_ipynb.ipynb
+Data preparation → Arabic preprocessing → Transformer fine-tuning
+→ Multi-seed evaluation → Model comparison → Diagnostic analysis
+→ Production model → Streamlit app (real-time + batch inference)
 ```
 
-The notebook documents:
-
-* Data preparation
-* Dataset filtering
-* Model training
-* Evaluation
-* Model comparison
-* Multi-seed experiments
-* Statistical analysis
-* Predictions
-* Visualizations
+**Skills:** Arabic NLP · sentiment analysis · transformer fine-tuning · AraBERT · Hugging Face Transformers · PyTorch · class-imbalance handling · focal loss · multi-seed evaluation · macro-F1 benchmarking · Streamlit · model deployment · batch inference
 
 ---
 
-# 🎯 What This Project Demonstrates
+## Links
 
-This project demonstrates an end-to-end **Arabic NLP / Transformer-based Machine Learning workflow**:
-
-```text
-Arabic Social-Media Data
-          ↓
-Data Preparation
-          ↓
-Arabic Text Preprocessing
-          ↓
-Transformer Fine-Tuning
-          ↓
-Multi-Seed Evaluation
-          ↓
-Model Comparison
-          ↓
-Error & Diagnostic Analysis
-          ↓
-Production Model
-          ↓
-Streamlit Application
-          ↓
-Real-Time + Batch Inference
-```
-
-### Core Skills Demonstrated
-
-```text
-✓ Arabic NLP
-✓ Sentiment Analysis
-✓ Transformer Fine-Tuning
-✓ AraBERT
-✓ Hugging Face Transformers
-✓ PyTorch
-✓ Text Preprocessing
-✓ Class Imbalance Handling
-✓ Focal Loss
-✓ Multi-Seed Evaluation
-✓ Model Benchmarking
-✓ Macro F1 Evaluation
-✓ Streamlit
-✓ Hugging Face Model Hub
-✓ Production Inference
-✓ Batch NLP Processing
-```
+- **Source code:** [GitHub](https://github.com/AbdelrhmanAkl/Arabic-Sentiment-Compass)
+- **Live app:** [arabic-sentiment-compasss.streamlit.app](https://arabic-sentiment-compasss.streamlit.app/)
+- **Model:** [Hugging Face](https://huggingface.co/AbdelrahmanAkl/arabic-sentiment-compass-arabert)
 
 ---
 
-# 🔗 Project Links
+## License
 
-### GitHub Repository
+This repository contains project code and experimental artifacts. Datasets and pretrained models remain subject to the licenses and terms of their original resources.
 
-[View the Source Code](https://github.com/AbdelrhmanAkl/arabic-sentiment-compass)
+## Acknowledgments
 
-### Live Application
-
-[Launch Arabic Sentiment Compass](https://arabic-sentiment-compasss.streamlit.app/)
-
-### Hugging Face Model
-
-[View the Arabic Sentiment Compass Model](https://huggingface.co/randsalem/arabic-sentiment-compass-arabert)
+Built on public Arabic NLP resources: **AraBERT**, **ASTD**, **ArSAS**, and **Hugging Face Transformers**.
 
 ---
 
-# 📄 License
-
-This repository contains project code and experimental artifacts.
-
-Dataset and pretrained-model usage remain subject to the original licenses and terms of their respective resources.
-
----
-
-# ⭐ Acknowledgments
-
-This project builds on publicly available Arabic NLP resources and pretrained transformer research, particularly:
-
-* AraBERT
-* Arabic Twitter sentiment datasets
-* ASTD
-* ArSAS
-* Hugging Face Transformers
-
----
-
-## 🧭 Arabic Sentiment Compass
-
-**Arabic Sentiment Analysis powered by Twitter-adapted AraBERT.**
-
-Built as an end-to-end Arabic NLP research and deployment project.
+**Built by [Abdelrahman Akl](https://github.com/AbdelrhmanAkl)** as an end-to-end Arabic NLP research and deployment project.
