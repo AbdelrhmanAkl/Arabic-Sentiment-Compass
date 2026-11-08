@@ -40,9 +40,22 @@ LABELS_ORDER = [
 
 # Each sentiment keeps the same colour everywhere in the app.
 SENTIMENT_COLORS = {
-    "Negative": "#C8445C",
-    "Neutral": "#B9852B",
-    "Positive": "#0F8F7E",
+    "Negative": "#F43F5E",
+    "Neutral": "#F59E0B",
+    "Positive": "#10B981",
+}
+
+# Darker shade for text and a soft tint for backgrounds (readable contrast).
+SENTIMENT_TEXT = {
+    "Negative": "#BE123C",
+    "Neutral": "#B45309",
+    "Positive": "#047857",
+}
+
+SENTIMENT_TINT = {
+    "Negative": "#FFE4E9",
+    "Neutral": "#FEF1D2",
+    "Positive": "#D5F7E8",
 }
 
 EXAMPLES = {
@@ -224,7 +237,8 @@ def gauge_svg(label=None, score=0.0, on_dark=False):
     arcs = ""
     for name, a0, a1 in segments:
         if idle:
-            color, opacity = grey, 1
+            color = SENTIMENT_COLORS[name]
+            opacity = 1 if on_dark else 0.35
         else:
             color = SENTIMENT_COLORS[name]
             opacity = 1 if name == label else 0.22
@@ -244,7 +258,7 @@ def gauge_svg(label=None, score=0.0, on_dark=False):
         f'<circle cx="{cx}" cy="{cy}" r="3.5" fill="{"#0E1A2B" if on_dark else "#FFFFFF"}"/>'
     )
 
-    tick_color = "#8D9BB2" if on_dark else "#6B7788"
+    tick_color = "#F1EEFF" if on_dark else "#6B7788"
     ticks = (
         f'<text x="{cx-r}" y="{cy+30}" text-anchor="middle" font-size="13" fill="{tick_color}">سلبي</text>'
         f'<text x="{cx}" y="{cy-r-16}" text-anchor="middle" font-size="13" fill="{tick_color}">محايد</text>'
@@ -267,24 +281,32 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Readex+Pro:wght@400;500;600;700&display=swap');
 
 :root{
-    --ink:#0E1A2B;
-    --ink-2:#26344B;
-    --muted:#5B6676;
-    --line:#DCE1E8;
-    --bg:#F3F5F8;
+    --ink:#1B1740;
+    --ink-2:#3B3765;
+    --muted:#6A6890;
+    --line:#E4E1F5;
     --surface:#FFFFFF;
-    --brand:#1F3FBF;
-    --brand-dark:#182F92;
-    --neg:#C8445C;
-    --neu:#B9852B;
-    --pos:#0F8F7E;
+    --brand:#5B4BE8;
+    --brand-2:#9333EA;
+    --pink:#EC4899;
+    --cyan:#06B6D4;
+    --neg:#E11D48;
+    --neu:#D97706;
+    --pos:#059669;
 }
 
 html, body, [class*="css"], .stApp, button, input, textarea{
     font-family:"IBM Plex Sans Arabic","Readex Pro",sans-serif;
 }
 
-.stApp{ background:var(--bg); color:var(--ink); direction:rtl; }
+.stApp{
+    direction:rtl; color:var(--ink);
+    background:
+      radial-gradient(900px 500px at 100% -5%, rgba(147,51,234,.16), transparent 60%),
+      radial-gradient(800px 480px at 0% 0%, rgba(6,182,212,.16), transparent 60%),
+      radial-gradient(900px 520px at 50% 105%, rgba(236,72,153,.14), transparent 60%),
+      #F6F4FF;
+}
 .block-container{ max-width:1180px; padding:1.4rem 2rem 3rem; }
 
 #MainMenu, footer, header{ visibility:hidden; }
@@ -292,53 +314,83 @@ html, body, [class*="css"], .stApp, button, input, textarea{
 [data-testid="stDataFrame"], [data-testid="stCode"], pre, code{ direction:ltr; text-align:left; }
 
 /* ---------- top bar ---------- */
-.topbar{
-    display:flex; align-items:center; justify-content:space-between;
-    padding:6px 2px 18px;
-}
+.topbar{ display:flex; align-items:center; justify-content:space-between; padding:6px 2px 18px; }
 .brand{ display:flex; align-items:center; gap:12px; }
 .brand-mark{
-    width:40px; height:40px; border-radius:10px; background:var(--ink);
-    display:flex; align-items:center; justify-content:center; font-size:20px;
+    width:44px; height:44px; border-radius:14px; font-size:22px;
+    background:linear-gradient(135deg,#5B4BE8,#EC4899);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 8px 20px rgba(91,75,232,.35);
 }
-.brand-name{ font-family:"Readex Pro",sans-serif; font-weight:600; font-size:16px; color:var(--ink); line-height:1.2; }
+.brand-name{ font-family:"Readex Pro",sans-serif; font-weight:700; font-size:17px; color:var(--ink); line-height:1.2; }
 .brand-sub{ font-size:13px; color:var(--muted); }
 .gh-link{
-    font-size:14px; font-weight:600; color:var(--ink) !important; text-decoration:none !important;
-    border:1px solid var(--line); background:var(--surface);
-    padding:9px 16px; border-radius:10px;
+    font-size:14px; font-weight:600; color:#fff !important; text-decoration:none !important;
+    background:var(--ink); padding:10px 18px; border-radius:12px;
+    box-shadow:0 6px 16px rgba(27,23,64,.25);
 }
-.gh-link:hover{ border-color:var(--ink); }
+.gh-link:hover{ background:var(--brand); }
 
 /* ---------- hero ---------- */
 .hero{
-    background:var(--ink); color:#fff; border-radius:20px;
-    padding:44px 48px;
-    display:grid; grid-template-columns:1.25fr .75fr; gap:40px; align-items:center;
-    margin-bottom:26px;
+    position:relative; overflow:hidden; color:#fff; border-radius:28px;
+    padding:46px 50px;
+    background:linear-gradient(120deg,#4338CA 0%,#7C3AED 48%,#DB2777 100%);
+    box-shadow:0 24px 50px rgba(91,75,232,.35);
+    display:grid; grid-template-columns:1.2fr .8fr; gap:40px; align-items:center;
+    margin-bottom:28px;
 }
+.hero:before{
+    content:""; position:absolute; width:420px; height:420px; border-radius:50%;
+    left:-120px; bottom:-200px; background:radial-gradient(circle,rgba(6,182,212,.55),transparent 65%);
+}
+.hero:after{
+    content:""; position:absolute; width:360px; height:360px; border-radius:50%;
+    right:-100px; top:-170px; background:radial-gradient(circle,rgba(251,191,36,.40),transparent 65%);
+}
+.hero > *{ position:relative; z-index:1; }
+.pills{ display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap; }
+.pill{ font-size:14px; font-weight:600; padding:6px 14px; border-radius:999px; }
+.p-pos{ background:#D5F7E8; color:#047857; }
+.p-neu{ background:#FEF1D2; color:#B45309; }
+.p-neg{ background:#FFE4E9; color:#BE123C; }
 .hero h1{
-    font-family:"Readex Pro",sans-serif; font-weight:600;
+    font-family:"Readex Pro",sans-serif; font-weight:700;
     font-size:clamp(30px,4.2vw,46px); line-height:1.3; margin:0 0 14px; color:#fff;
 }
-.hero p{ font-size:17px; line-height:1.95; color:#B9C4D6; margin:0 0 28px; max-width:520px; }
-.facts{ display:flex; gap:0; margin:0; padding:0; }
-.fact{ padding:0 22px; border-inline-start:1px solid #34445E; }
+.hero p{ font-size:17px; line-height:1.95; color:rgba(255,255,255,.9); margin:0 0 28px; max-width:540px; }
+.facts{ display:flex; margin:0; padding:0; }
+.fact{ padding:0 22px; border-inline-start:1px solid rgba(255,255,255,.35); }
 .fact:first-child{ padding-inline-start:0; border-inline-start:0; }
-.fact b{ display:block; font-family:"Readex Pro",sans-serif; font-weight:600; font-size:18px; color:#fff; }
-.fact span{ font-size:13px; color:#8D9BB2; }
-.hero-gauge{ direction:ltr; max-width:340px; margin-inline:auto; width:100%; }
+.fact b{ display:block; font-family:"Readex Pro",sans-serif; font-weight:700; font-size:19px; color:#fff; }
+.fact span{ font-size:13px; color:rgba(255,255,255,.82); }
+.hero-gauge{
+    direction:ltr; width:100%; max-width:340px; margin-inline:auto;
+    background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.3);
+    border-radius:24px; padding:22px 20px 12px; backdrop-filter:blur(8px);
+}
 
 /* ---------- tabs ---------- */
-.stTabs [data-baseweb="tab-list"]{ gap:6px; border-bottom:1px solid var(--line); }
+.stTabs [data-baseweb="tab-list"]{ gap:10px; border-bottom:0; padding:4px 0 6px; }
+.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"]{ display:none; }
 .stTabs [data-baseweb="tab"]{
-    height:50px; padding:0 20px; font-size:15px; font-weight:600; color:var(--muted);
+    height:46px; padding:0 22px; font-size:15px; font-weight:600; color:var(--ink-2);
+    background:#fff; border:1px solid var(--line); border-radius:999px;
+    box-shadow:0 4px 12px rgba(91,75,232,.08);
 }
-.stTabs [aria-selected="true"]{ color:var(--ink) !important; }
-.stTabs [data-baseweb="tab-highlight"]{ background:var(--ink) !important; height:3px; }
+.stTabs [aria-selected="true"]{
+    color:#fff !important; border-color:transparent;
+    background:linear-gradient(135deg,#5B4BE8,#9333EA);
+    box-shadow:0 8px 20px rgba(91,75,232,.35);
+}
+.stTabs [aria-selected="true"] p{ color:#fff !important; }
 
 /* ---------- headings ---------- */
-.h2{ font-family:"Readex Pro",sans-serif; font-weight:600; font-size:24px; color:var(--ink); margin:26px 0 6px; }
+.h2{ font-family:"Readex Pro",sans-serif; font-weight:700; font-size:24px; color:var(--ink); margin:22px 0 6px; }
+.h2:before{
+    content:""; display:inline-block; width:7px; height:24px; border-radius:5px; margin-inline-end:12px; vertical-align:-4px;
+    background:linear-gradient(180deg,#5B4BE8,#EC4899);
+}
 .lead{ font-size:15px; color:var(--muted); line-height:1.9; margin:0 0 18px; }
 .field-label{ font-size:15px; font-weight:600; color:var(--ink); margin:4px 0 8px; }
 .hint{ font-size:13px; color:var(--muted); }
@@ -347,109 +399,124 @@ html, body, [class*="css"], .stApp, button, input, textarea{
 [data-testid="stTextArea"] textarea{
     direction:rtl; text-align:right;
     font-size:17px !important; line-height:1.9 !important; color:var(--ink) !important;
-    background:var(--surface) !important;
-    border:1px solid var(--line) !important; border-radius:14px !important;
+    background:#fff !important; border:2px solid var(--line) !important; border-radius:18px !important;
     min-height:200px !important; padding:16px 18px !important;
+    box-shadow:0 10px 26px rgba(91,75,232,.08) !important;
 }
 [data-testid="stTextArea"] textarea:focus{
-    border-color:var(--brand) !important; box-shadow:0 0 0 3px rgba(31,63,191,.14) !important;
+    border-color:#7C3AED !important; box-shadow:0 0 0 4px rgba(124,58,237,.16) !important;
 }
 
 /* ---------- buttons ---------- */
 .stButton > button{
-    min-height:46px; border-radius:12px; font-weight:600; font-size:15px;
-    background:var(--surface); color:var(--ink); border:1px solid var(--line);
-    box-shadow:none; transition:border-color .15s ease, background .15s ease;
+    min-height:48px; border-radius:14px; font-weight:600; font-size:15px;
+    background:#fff; color:var(--ink); border:1px solid var(--line);
+    box-shadow:0 4px 12px rgba(91,75,232,.07); transition:transform .15s ease, box-shadow .15s ease;
 }
-.stButton > button:hover{ border-color:var(--ink); color:var(--ink); background:var(--surface); }
+.stButton > button:hover{ transform:translateY(-1px); border-color:var(--brand); color:var(--brand); background:#fff; }
 .stButton > button[kind="primary"],
 .stButton > button[data-testid="stBaseButton-primary"]{
-    background:var(--brand); color:#fff; border:1px solid var(--brand);
+    background:linear-gradient(135deg,#4F46E5,#9333EA 60%,#DB2777); color:#fff; border:0;
+    box-shadow:0 10px 24px rgba(124,58,237,.38);
 }
 .stButton > button[kind="primary"]:hover,
-.stButton > button[data-testid="stBaseButton-primary"]:hover{
-    background:var(--brand-dark); border-color:var(--brand-dark); color:#fff;
-}
-.stButton > button:focus-visible{ outline:3px solid rgba(31,63,191,.35); outline-offset:2px; }
+.stButton > button[data-testid="stBaseButton-primary"]:hover{ color:#fff; box-shadow:0 14px 28px rgba(124,58,237,.48); }
+.stButton > button:focus-visible{ outline:3px solid rgba(124,58,237,.4); outline-offset:2px; }
+
+.st-key-ex_0 button{ background:#D5F7E8; color:#047857; border-color:#8FE6C2; }
+.st-key-ex_1 button{ background:#FFE4E9; color:#BE123C; border-color:#FDA4B4; }
+.st-key-ex_2 button{ background:#FEF1D2; color:#B45309; border-color:#F8D58A; }
+.st-key-ex_0 button:hover{ color:#047857; border-color:#10B981; }
+.st-key-ex_1 button:hover{ color:#BE123C; border-color:#F43F5E; }
+.st-key-ex_2 button:hover{ color:#B45309; border-color:#F59E0B; }
+
 [data-testid="stDownloadButton"] > button{
-    min-height:46px; border-radius:12px; font-weight:600; font-size:15px;
-    background:var(--ink); color:#fff; border:1px solid var(--ink);
+    min-height:48px; border-radius:14px; font-weight:600; font-size:15px; color:#fff; border:0;
+    background:linear-gradient(135deg,#0EA5E9,#10B981);
+    box-shadow:0 10px 24px rgba(14,165,233,.35);
 }
-[data-testid="stDownloadButton"] > button:hover{ background:var(--ink-2); color:#fff; }
+[data-testid="stDownloadButton"] > button:hover{ color:#fff; filter:brightness(1.05); }
 
 /* ---------- result panel ---------- */
 .panel{
-    background:var(--surface); border:1px solid var(--line); border-radius:18px; padding:26px 28px;
+    background:#fff; border:1px solid var(--line); border-radius:24px; padding:26px 28px;
+    box-shadow:0 16px 40px rgba(91,75,232,.10);
 }
-.panel-idle{ min-height:420px; display:flex; flex-direction:column; justify-content:center; }
+.panel-idle{
+    min-height:420px; display:flex; flex-direction:column; justify-content:center;
+    background:linear-gradient(165deg,#F0ECFF,#fff 60%);
+}
+.panel-result{ background:linear-gradient(165deg,var(--tint),#fff 58%); border-top:7px solid var(--accent); }
 .result-top{ display:flex; align-items:center; justify-content:space-between; gap:14px; }
 .result-kicker{ font-size:14px; color:var(--muted); font-weight:500; }
 .badge{
-    font-size:13px; font-weight:600; padding:5px 12px; border-radius:999px;
-    border:1px solid var(--line); color:var(--ink-2); background:var(--bg);
+    font-size:13px; font-weight:700; padding:6px 14px; border-radius:999px;
+    background:#fff; color:var(--ink); border:1px solid var(--line);
 }
-.result-label{
-    font-family:"Readex Pro",sans-serif; font-weight:600; font-size:42px; line-height:1.2; margin:6px 0 0;
-}
+.result-label{ font-family:"Readex Pro",sans-serif; font-weight:700; font-size:46px; line-height:1.2; margin:6px 0 0; }
 .result-sub{ font-size:14px; color:var(--muted); margin-top:2px; }
 .gauge-box{ direction:ltr; max-width:360px; margin:14px auto 6px; }
 .needle{ animation:sweep .9s cubic-bezier(.2,.8,.2,1); }
 @keyframes sweep{ from{ transform:rotate(0deg); } }
 @media (prefers-reduced-motion:reduce){ .needle{ animation:none; } }
 
-.probs{ margin-top:12px; border-top:1px solid var(--line); padding-top:16px; }
+.probs{ margin-top:12px; border-top:1px solid rgba(27,23,64,.1); padding-top:16px; }
 .prob{ display:grid; grid-template-columns:70px 1fr 64px; gap:12px; align-items:center; margin-bottom:12px; }
 .prob-name{ font-size:15px; font-weight:600; color:var(--ink); }
-.prob-val{ font-size:15px; font-weight:600; color:var(--ink); text-align:left; direction:ltr; font-variant-numeric:tabular-nums; }
-.track{ height:10px; border-radius:99px; background:#EBEEF3; overflow:hidden; direction:rtl; }
+.prob-val{ font-size:15px; font-weight:700; color:var(--ink); text-align:left; direction:ltr; font-variant-numeric:tabular-nums; }
+.track{ height:12px; border-radius:99px; background:rgba(27,23,64,.08); overflow:hidden; direction:rtl; }
 .fill{ height:100%; border-radius:99px; }
 
 .notice{
-    margin-top:6px; padding:12px 16px; border-radius:12px; font-size:14px; line-height:1.8;
-    background:#FBF4E4; border:1px solid #EBD9A8; color:#6B4E10;
-}
-.callout{
-    padding:14px 18px; border-radius:12px; font-size:15px; line-height:1.9;
-    background:#EAEFFB; border:1px solid #CBD6F4; color:#1B2E73; margin-bottom:18px;
+    margin-top:12px; padding:12px 16px; border-radius:14px; font-size:14px; line-height:1.8;
+    background:#FEF1D2; border:1px solid #F8D58A; color:#8A4A06;
 }
 
 /* ---------- stats / batch ---------- */
 .stats{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:14px; }
-.stat{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:16px 18px; }
-.stat-k{ font-size:13px; color:var(--muted); }
-.stat-v{ font-family:"Readex Pro",sans-serif; font-size:28px; font-weight:600; color:var(--ink); line-height:1.3; margin-top:2px; }
-.stat-s{ font-size:13px; color:var(--muted); }
-.stack{ display:flex; height:14px; border-radius:99px; overflow:hidden; direction:rtl; margin:4px 0 16px; background:#EBEEF3; }
-.legend{ display:flex; gap:18px; font-size:13px; color:var(--muted); margin-bottom:18px; }
-.legend i{ display:inline-block; width:10px; height:10px; border-radius:3px; margin-inline-end:6px; }
+.stat{ border-radius:18px; padding:16px 18px; border:1px solid transparent; }
+.stat-k{ font-size:14px; font-weight:600; }
+.stat-v{ font-family:"Readex Pro",sans-serif; font-size:30px; font-weight:700; line-height:1.3; margin-top:2px; }
+.stat-s{ font-size:13px; opacity:.85; }
+.s-total{ background:linear-gradient(135deg,#5B4BE8,#9333EA); color:#fff; box-shadow:0 10px 22px rgba(91,75,232,.3); }
+.s-pos{ background:#D5F7E8; color:#047857; border-color:#8FE6C2; }
+.s-neu{ background:#FEF1D2; color:#B45309; border-color:#F8D58A; }
+.s-neg{ background:#FFE4E9; color:#BE123C; border-color:#FDA4B4; }
+.stack{ display:flex; height:16px; border-radius:99px; overflow:hidden; direction:rtl; margin:4px 0 18px; background:#E8E5F7; }
 
 [data-testid="stFileUploader"] section{
-    border:1.5px dashed #B9C2D0; border-radius:14px; background:var(--surface);
+    border:2px dashed #B7A9F5; border-radius:18px; background:#fff;
 }
-[data-testid="stDataFrame"]{ border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+[data-testid="stDataFrame"]{ border:1px solid var(--line); border-radius:14px; overflow:hidden; }
 
 /* ---------- about ---------- */
 .kv{ display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:8px 0 8px; }
-.kv > div{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:16px 18px; }
+.kv > div{ background:#fff; border:1px solid var(--line); border-radius:18px; padding:16px 18px; border-top:5px solid var(--brand); box-shadow:0 8px 20px rgba(91,75,232,.07); }
+.kv > div:nth-child(2){ border-top-color:var(--pink); }
+.kv > div:nth-child(3){ border-top-color:var(--cyan); }
 .kv .k{ font-size:13px; color:var(--muted); }
-.kv .v{ font-family:"Readex Pro",sans-serif; font-weight:600; font-size:17px; color:var(--ink); margin-top:3px; word-break:break-all; direction:ltr; text-align:right; }
+.kv .v{ font-family:"Readex Pro",sans-serif; font-weight:700; font-size:17px; color:var(--ink); margin-top:3px; word-break:break-all; direction:ltr; text-align:right; }
 .steps{ display:grid; grid-template-columns:repeat(5,1fr); gap:10px; counter-reset:s; margin:8px 0; }
-.steps > div{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:16px; counter-increment:s; }
+.steps > div{ background:#fff; border:1px solid var(--line); border-radius:18px; padding:16px; counter-increment:s; box-shadow:0 8px 20px rgba(91,75,232,.06); }
 .steps > div:before{
     content:counter(s); display:flex; align-items:center; justify-content:center;
-    width:28px; height:28px; border-radius:50%; background:var(--ink); color:#fff;
-    font-size:13px; font-weight:600; margin-bottom:10px;
+    width:32px; height:32px; border-radius:11px; color:#fff; font-size:14px; font-weight:700; margin-bottom:10px;
+    background:linear-gradient(135deg,#5B4BE8,#9333EA);
 }
+.steps > div:nth-child(2):before{ background:linear-gradient(135deg,#9333EA,#EC4899); }
+.steps > div:nth-child(3):before{ background:linear-gradient(135deg,#EC4899,#F59E0B); }
+.steps > div:nth-child(4):before{ background:linear-gradient(135deg,#06B6D4,#5B4BE8); }
+.steps > div:nth-child(5):before{ background:linear-gradient(135deg,#10B981,#06B6D4); }
 .steps b{ display:block; font-size:15px; color:var(--ink); }
 .steps span{ font-size:13px; color:var(--muted); line-height:1.7; }
-.limits{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:18px 24px; font-size:15px; line-height:2; color:var(--ink-2); }
+.limits{ background:#fff; border:1px solid var(--line); border-radius:18px; padding:18px 24px; font-size:15px; line-height:2; color:var(--ink-2); border-right:6px solid var(--neu); }
 .limits ul{ margin:0; padding-inline-start:20px; }
 
 .footer{
     margin-top:42px; padding-top:18px; border-top:1px solid var(--line);
     display:flex; justify-content:space-between; gap:14px; font-size:13px; color:var(--muted);
 }
-.footer a{ color:var(--ink); font-weight:600; text-decoration:none; }
+.footer a{ color:var(--brand); font-weight:700; text-decoration:none; }
 
 @media(max-width:900px){
     .block-container{ padding:1rem 1rem 2rem; }
@@ -481,6 +548,7 @@ html(f"""
 
 <div class="hero">
   <div>
+    <div class="pills"><span class="pill p-pos">😊 إيجابي</span><span class="pill p-neu">😐 محايد</span><span class="pill p-neg">😞 سلبي</span></div>
     <h1>اعرف اتجاه المشاعر في أي نص عربي خلال ثوانٍ</h1>
     <p>الصق تعليقًا أو تغريدة أو رأيًا، أو ارفع ملف CSV كاملًا. يصنّف النموذج كل نص إلى إيجابي أو سلبي أو محايد، ويعرض نسبة الثقة وتوزيع الاحتمالات.</p>
     <div class="facts">
@@ -499,7 +567,7 @@ html(f"""
 # =========================================================
 
 tab_text, tab_csv, tab_about = st.tabs(
-    ["تحليل نص", "تحليل ملف CSV", "عن المشروع"]
+    ["✍️  تحليل نص", "📊  تحليل ملف CSV", "ℹ️  عن المشروع"]
 )
 
 
@@ -515,11 +583,11 @@ with tab_text:
         html('<div class="h2">أدخل النص</div><p class="lead">اكتب جملة أو تغريدة أو رأيًا بالعربية، أو جرّب أحد الأمثلة.</p>')
 
         ex_cols = st.columns(len(EXAMPLES), gap="small")
-        for col, (name, sample) in zip(ex_cols, EXAMPLES.items()):
+        for i, (col, (name, sample)) in enumerate(zip(ex_cols, EXAMPLES.items())):
             with col:
                 st.button(
-                    name,
-                    key=f"ex_{name}",
+                    ["😊 " , "😞 ", "😐 "][i] + name,
+                    key=f"ex_{i}",
                     use_container_width=True,
                     on_click=set_example,
                     args=(sample,),
@@ -589,6 +657,8 @@ with tab_text:
             conf = result["confidence"]
             score = probs["Positive"] - probs["Negative"]
             color = SENTIMENT_COLORS[label]
+            tcolor = SENTIMENT_TEXT[label]
+            tint = SENTIMENT_TINT[label]
 
             rows = ""
             for name in LABELS_ORDER:
@@ -600,12 +670,12 @@ with tab_text:
                 )
 
             html(f"""
-            <div class="panel">
+            <div class="panel panel-result" style="--tint:{tint};--accent:{color};">
               <div class="result-top">
                 <div class="result-kicker">التصنيف المتوقع</div>
                 <div class="badge">الثقة {conf*100:.1f}%</div>
               </div>
-              <div class="result-label" style="color:{color};">{ARABIC_LABELS[label]}</div>
+              <div class="result-label" style="color:{tcolor};">{ARABIC_LABELS[label]}</div>
               <div class="result-sub">{label}</div>
               <div class="gauge-box">{gauge_svg(label, score)}</div>
               <div class="probs">{rows}</div>
@@ -734,10 +804,10 @@ with tab_csv:
 
             html(f"""
             <div class="stats">
-              <div class="stat"><div class="stat-k">إجمالي السجلات</div><div class="stat-v">{total_rows:,}</div><div class="stat-s">متوسط الثقة {avg_conf:.1f}%</div></div>
-              <div class="stat"><div class="stat-k">إيجابي</div><div class="stat-v" style="color:var(--pos);">{pct('Positive'):.1f}%</div><div class="stat-s">{counts.get('Positive',0):,} سجل</div></div>
-              <div class="stat"><div class="stat-k">محايد</div><div class="stat-v" style="color:var(--neu);">{pct('Neutral'):.1f}%</div><div class="stat-s">{counts.get('Neutral',0):,} سجل</div></div>
-              <div class="stat"><div class="stat-k">سلبي</div><div class="stat-v" style="color:var(--neg);">{pct('Negative'):.1f}%</div><div class="stat-s">{counts.get('Negative',0):,} سجل</div></div>
+              <div class="stat s-total"><div class="stat-k">إجمالي السجلات</div><div class="stat-v">{total_rows:,}</div><div class="stat-s">متوسط الثقة {avg_conf:.1f}%</div></div>
+              <div class="stat s-pos"><div class="stat-k">إيجابي</div><div class="stat-v">{pct('Positive'):.1f}%</div><div class="stat-s">{counts.get('Positive',0):,} سجل</div></div>
+              <div class="stat s-neu"><div class="stat-k">محايد</div><div class="stat-v">{pct('Neutral'):.1f}%</div><div class="stat-s">{counts.get('Neutral',0):,} سجل</div></div>
+              <div class="stat s-neg"><div class="stat-k">سلبي</div><div class="stat-v">{pct('Negative'):.1f}%</div><div class="stat-s">{counts.get('Negative',0):,} سجل</div></div>
             </div>
             <div class="stack">
               <div style="width:{pct('Positive'):.2f}%;background:var(--pos);"></div>
